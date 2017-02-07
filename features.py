@@ -20,6 +20,8 @@ for each temporal information:
 
 for each static features
 preprocessing:
+
+
     - fill na with 0
     - scale data with MaxAbsScaler to handle sparse data
 features:
