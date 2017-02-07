@@ -20,6 +20,8 @@ for each temporal information:
 
 for each static features
 preprocessing:
+
+
     - fill na with 0
     - scale data with MaxAbsScaler to handle sparse data
 features:
@@ -58,7 +60,8 @@ def scale_static(train, features_train, dev=None, features_dev=None):
     """ """
     # fill static NaN with 0
     fillna_static(train)
-    fillna_static(dev)
+    if dev is not None:
+        fillna_static(dev)
     # scale data with MaxAbsScaler to handle sparse static data
     max_abs_scaler = preprocessing.MaxAbsScaler()
     tmp = pd.DataFrame(
@@ -113,15 +116,55 @@ def delta_temporal_station_zone(train, features_train, dev=None,
     return features_train, features_dev
 
 
-def make_features(train, dev=None, normalize=False):
+def add_temporal_rolling_mean(delta, train, features_train, dev, features_dev):
+    """ """
+    # compute rolling mean of step delta
+    rol_df = train.groupby("block")[cols["temporal"]] \
+        .rolling(delta, min_periods=0).mean() \
+        .reset_index(0, drop=True)
+    rol_df.rename(
+        columns=dict((col, "%s_mean_%i" % (col, delta))
+                     for col in cols["temporal"]),
+        inplace=True)
+    features_train = features_train.merge(
+        rol_df, left_index=True, right_index=True, copy=False)
+    if dev is not None:
+        rol_df = dev.groupby("block")[cols["temporal"]] \
+            .rolling(delta, min_periods=0).mean() \
+            .reset_index(0, drop=True)
+        rol_df.rename(
+            columns=dict((col, "%s_mean_%i" % (col, delta))
+                         for col in cols["temporal"]),
+            inplace=True)
+        features_dev = features_dev.merge(
+            rol_df, left_index=True, right_index=True,
+            suffixes=("", "_mean_%i" % delta))
+    # scale it
+    scaler = preprocessing.RobustScaler()
+    features_train[
+        ["%s_mean_%i" % (col, delta) for col in cols["temporal"]]
+    ] = scaler.fit_transform(
+        features_train[["%s_mean_%i" % (col, delta)
+                        for col in cols["temporal"]]])
+    if dev is not None:
+        features_dev[
+            ["%s_mean_%i" % (col, delta) for col in cols["temporal"]]
+        ] = scaler.transform(
+            features_dev[["%s_mean_%i" % (col, delta)
+                          for col in cols["temporal"]]])
+    return features_train, features_dev
+
+
+def make_features(train, dev=None, normalize=False,
+                  rolling_mean=True, deltas=[]):
     """ """
     f_train = train[["ID", "zone_id", "daytime", "hour_of_day", "is_calmday"]]
-    f_train.set_index("ID")
-    f_train.drop("ID", axis=1, inplace=True)
+    f_train.set_index("ID", inplace=True)
+    # f_train.drop("ID", axis=1, inplace=True)
     if dev is not None:
         f_dev = dev[["ID", "zone_id", "daytime", "hour_of_day", "is_calmday"]]
-        f_dev.set_index("ID")
-        f_dev.drop("ID", axis=1, inplace=True)
+        f_dev.set_index("ID", inplace=True)
+        # f_dev.drop("ID", axis=1, inplace=True)
     else:
         f_dev = None
     # scale temporal features with robust scaling
@@ -133,6 +176,12 @@ def make_features(train, dev=None, normalize=False):
     # add diff for temporal data between station value and zone avg
     f_train, f_dev = delta_temporal_station_zone(
         train, f_train, dev, f_dev)
+    # Rolling mean of step delta
+    if rolling_mean:
+        for delta in deltas:
+            f_train, f_dev = add_temporal_rolling_mean(
+                delta, train, f_train, dev, f_dev)
+
     # l2 normalize
     if normalize:
         f_train = preprocessing.normalize(f_train)

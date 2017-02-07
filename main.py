@@ -4,7 +4,7 @@
 
 from dataset import (
     split_pollutant_dataset, preprocess_dataset, split_train_dev,
-    get_Y
+    get_Y, zone_station_train, zone_station_dev
 )
 from features import make_features
 import pandas as pd
@@ -14,7 +14,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import PredefinedSplit, GridSearchCV
 from sklearn import preprocessing
 from sklearn import ensemble
-from sklearn.pipeline import Pipeline
+
 from sklearn.neural_network import MLPRegressor
 
 
@@ -41,7 +41,6 @@ def build_test_fold(train, dev):
 
 
 
-
 X_train_path = "/Users/thomasopsomer/data/plume-data/X_train.csv"
 X_test_path = "/Users/thomasopsomer/data/plume-data/X_test.csv"
 Y_train_path = "/Users/thomasopsomer/data/plume-data/Y_train.csv"
@@ -55,16 +54,16 @@ Y = pd.read_csv(Y_train_path)
 # split for each pollutant
 NO2_df, PM10_df, PM25_df = split_pollutant_dataset(df)
 
-
 # split in train / dev for each pollutant
-NO2_train, NO2_dev = split_train_dev(NO2_df)
-PM10_train, PM10_dev = split_train_dev(PM10_df)
-PM25_train, PM25_dev = split_train_dev(PM25_df)
+NO2_train, NO2_dev = split_train_dev(NO2_df, zone_station_train, zone_station_dev)
+PM10_train, PM10_dev = split_train_dev(PM10_df, zone_station_train, zone_station_dev)
+PM25_train, PM25_dev = split_train_dev(PM25_df, zone_station_train, zone_station_dev)
 
 # make features and get labels
 
 # NO2
-NO2_train_f, NO2_dev_f = make_features(NO2_train, NO2_dev)
+NO2_train_f, NO2_dev_f = make_features(NO2_train, NO2_dev, normalize=False,
+                                       rolling_mean=True, deltas=[12])
 Y_NO2_train = get_Y(Y, NO2_train)
 Y_NO2_dev = get_Y(Y, NO2_dev)
 X_NO2 = pd.concat([NO2_train_f, NO2_dev_f], axis=0, copy=False)
@@ -91,14 +90,15 @@ PM25_test_fold = build_test_fold(Y_PM25_train, Y_PM25_dev)
 # Linear model:
 
 # regression L2 (ridge)
-lr = linear_model.Ridge()
+lr = linear_model.Ridge(alpha=1, normalize=True)
 lr.fit(NO2_train_f, Y_NO2_train)
+evaluate_mse(lr, NO2_train_f, NO2_dev_f, Y_NO2_train, Y_NO2_dev)
 
 ps = PredefinedSplit(NO2_test_fold)
 
 lr = linear_model.Ridge()
 param_grid = {
-    "alpha": [0.1, 1, 10, 100],
+    "alpha": [0.1, 1, 10, 100, 1000, 10000],
     "normalize": [True]
 }
 gs = GridSearchCV(lr, param_grid, scoring="neg_mean_squared_error", n_jobs=1,
@@ -177,7 +177,7 @@ evaluate_mse(gs,
 
 # Ensemble
 
-ps = PredefinedSplit(PM10_test_fold)
+ps = PredefinedSplit(NO2_test_fold)
 param_grid = {
     "n_estimators": [10],
     "n_jobs": [2]
@@ -186,7 +186,7 @@ rfr = ensemble.RandomForestRegressor(n_jobs=2)
 gs = GridSearchCV(rfr, param_grid, scoring="neg_mean_squared_error", n_jobs=1,
                   iid=False, refit=True, cv=ps)
 
-gs.fit(preprocessing.normalize(X_PM10), Y_PM10)
+gs.fit(preprocessing.normalize(X_NO2), Y_NO2)
 
 rfr = ensemble.RandomForestRegressor(n_estimators=10, n_jobs=2)
 

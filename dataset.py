@@ -162,7 +162,6 @@ def get_poll_zone_station(df):
     return d
 
 
-
 def add_hours_day(df):
     """ """
     df["hour_of_day"] = df.daytime.map(lambda x: (x - daytime_0) % 24)
