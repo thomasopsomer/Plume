@@ -6,7 +6,9 @@ from dataset import (
     split_pollutant_dataset, preprocess_dataset, split_train_dev,
     get_Y, zone_station_train, zone_station_dev
 )
-from features import make_features
+from features import (
+    make_features, make_seqential_features, get_seq_Y
+)
 import pandas as pd
 
 from sklearn import linear_model
