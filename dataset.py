@@ -181,13 +181,14 @@ def preprocess_dataset(df):
     # add hour of day (0-23)
     add_hours_day(df)
     # add avg temporal value per zone
-    df = add_avg_temporal_per_zone(df)
+    # df = add_avg_temporal_per_zone(df)
     return df
 
 
 def get_Y(Y_df, X_df):
     """ """
-    return pd.merge(Y_df, X_df[["ID"]], how='inner').set_index("ID")
+    # return pd.merge(Y_df, X_df[["ID"]], how='inner').set_index("ID")
+    return Y_df.loc[Y_df.index.isin(X_df.index)]
 
 
 if __name__ == '__main__':

@@ -48,9 +48,9 @@ X_test_path = "/Users/thomasopsomer/data/plume-data/X_test.csv"
 Y_train_path = "/Users/thomasopsomer/data/plume-data/Y_train.csv"
 
 # load all dataset
-df = pd.read_csv(X_train_path)
+df = pd.read_csv(X_train_path, index_col="ID")
 df = preprocess_dataset(df)
-Y = pd.read_csv(Y_train_path)
+Y = pd.read_csv(Y_train_path, index_col="ID")
 
 
 # split for each pollutant

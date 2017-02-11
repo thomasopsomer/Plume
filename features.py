@@ -46,13 +46,13 @@ def scale_temporal(train, features_train, dev=None, features_dev=None):
     tmp = pd.DataFrame(
         robust_scaler.fit_transform(train[cols["temporal"]]),
         columns=["%s_sc" % col for col in cols["temporal"]],
-        index=train.ID)
+        index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
             robust_scaler.transform(dev[cols["temporal"]]),
             columns=["%s_sc" % col for col in cols["temporal"]],
-            index=dev.ID)
+            index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
     return features_train, features_dev
 
@@ -68,13 +68,13 @@ def scale_static(train, features_train, dev=None, features_dev=None):
     tmp = pd.DataFrame(
         max_abs_scaler.fit_transform(train[cols["static"]]),
         columns=["%s_sc" % col for col in cols["static"]],
-        index=train.ID)
+        index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
             max_abs_scaler.transform(dev[cols["static"]]),
             columns=["%s_sc" % col for col in cols["static"]],
-            index=dev.ID)
+            index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
     return features_train, features_dev
 
@@ -86,13 +86,13 @@ def binarize_static(train, features_train, dev=None, features_dev=None):
     tmp = pd.DataFrame(
         binarizer.fit_transform(train[cols["static"]]),
         columns=["%s_i" % col for col in cols["static"]],
-        index=train.ID)
+        index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
             binarizer.fit_transform(dev[cols["static"]]),
             columns=["%s_i" % col for col in cols["static"]],
-            index=dev.ID)
+            index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
     return features_train, features_dev
 
@@ -175,21 +175,18 @@ def add_temporal_shift(delays, features_train, features_dev=None):
 
 def normalize_df(df):
     """ """
-    return pd.DataFrame(preprocessing.normalize(df), columns=df.columns, index=df.index)
+    return pd.DataFrame(preprocessing.normalize(df), columns=df.columns,
+                        index=df.index)
 
 
 def make_features(train, dev=None, normalize=False,
-                  delta_temporal=True,
+                  delta_temporal=False,
                   rolling_mean=True, deltas=[],
                   shift=False, delays=[]):
     """ """
-    f_train = train[["ID", "zone_id", "hour_of_day", "is_calmday"]]
-    f_train.set_index("ID", inplace=True)
-    # f_train.drop("ID", axis=1, inplace=True)
+    f_train = train[["zone_id", "hour_of_day", "is_calmday"]]
     if dev is not None:
-        f_dev = dev[["ID", "zone_id", "hour_of_day", "is_calmday"]]
-        f_dev.set_index("ID", inplace=True)
-        # f_dev.drop("ID", axis=1, inplace=True)
+        f_dev = dev[["zone_id", "hour_of_day", "is_calmday"]]
     else:
         f_dev = None
     # scale temporal features with robust scaling
@@ -246,9 +243,9 @@ def make_seqential_features(train, dev=None, seq_length=12, normalize=False,
                             delta_temporal=True):
     """ """
     columns = ["daytime", "zone_id", "hour_of_day", "is_calmday", "block"]
-    f_train = train.set_index("ID")[columns]
+    f_train = train[columns]
     if dev is not None:
-        f_dev = dev.set_index("ID")[columns]
+        f_dev = dev[columns]
     else:
         f_dev = None
     # scale temporal features with robust scaling
@@ -276,9 +273,9 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
                          delta_temporal=True):
     """ """
     columns = ["daytime", "zone_id", "hour_of_day", "is_calmday", "block"]
-    f_train = train.set_index("ID")[columns]
+    f_train = train[columns]
     if dev is not None:
-        f_dev = dev.set_index("ID")[columns]
+        f_dev = dev[columns]
     else:
         f_dev = None
     # scale temporal features with robust scaling
