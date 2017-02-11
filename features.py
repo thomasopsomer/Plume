@@ -157,17 +157,58 @@ def add_temporal_rolling_mean(delta, train, features_train,
     return features_train, features_dev
 
 
+def add_temporal_rolling_std(delta, train, features_train,
+                             dev=None, features_dev=None):
+    """ """
+    # compute rolling mean of step delta
+    rol_df = train.groupby("block")[cols["temporal"]] \
+        .rolling(delta, min_periods=0).std() \
+        .fillna(method="bfill") \
+        .reset_index(0, drop=True)
+    rol_df.rename(
+        columns=dict((col, "%s_std_%i" % (col, delta))
+                     for col in cols["temporal"]),
+        inplace=True)
+    features_train = features_train.merge(
+        rol_df, left_index=True, right_index=True, copy=False)
+    if dev is not None:
+        rol_df = dev.groupby("block")[cols["temporal"]] \
+            .rolling(delta, min_periods=0).std() \
+            .reset_index(0, drop=True)
+        rol_df.rename(
+            columns=dict((col, "%s_std_%i" % (col, delta))
+                         for col in cols["temporal"]),
+            inplace=True)
+        features_dev = features_dev.merge(
+            rol_df, left_index=True, right_index=True,
+            suffixes=("", "_std_%i" % delta))
+    # scale it
+    # scaler = preprocessing.RobustScaler()
+    # features_train[
+    #     ["%s_std_%i" % (col, delta) for col in cols["temporal"]]
+    # ] = scaler.fit_transform(
+    #     features_train[["%s_std_%i" % (col, delta)
+    #                     for col in cols["temporal"]]])
+    # if dev is not None:
+    #     features_dev[
+    #         ["%s_std_%i" % (col, delta) for col in cols["temporal"]]
+    #     ] = scaler.transform(
+    #         features_dev[["%s_std_%i" % (col, delta)
+    #                       for col in cols["temporal"]]])
+    return features_train, features_dev
+
+
 def add_temporal_shift(delays, features_train, features_dev=None):
     """ """
     for time in delays:
         for col in cols["temporal"]:
-            features_train["%s_shif_%i" % (col, time)] = \
+            features_train["%s_shift_%i" % (col, time)] = \
                 features_train["%s_sc" % col].shift(time) \
                 .fillna(method="bfill")
     if features_dev is not None:
         for time in delays:
             for col in cols["temporal"]:
-                features_dev["%s_shif_%i" % (col, time)] = \
+                features_dev["%s_shift_%i" % (col, time)] = \
                     features_dev["%s_sc" % col].shift(time) \
                     .fillna(method="bfill")
     return features_train, features_dev
@@ -181,7 +222,8 @@ def normalize_df(df):
 
 def make_features(train, dev=None, normalize=False,
                   delta_temporal=False,
-                  rolling_mean=True, deltas=[],
+                  rolling_mean=True, deltas_mean=[],
+                  rolling_std=True, deltas_std=[],
                   shift=False, delays=[]):
     """ """
     f_train = train[["zone_id", "hour_of_day", "is_calmday"]]
@@ -201,8 +243,13 @@ def make_features(train, dev=None, normalize=False,
             train, f_train, dev, f_dev)
     # Rolling mean of step delta
     if rolling_mean:
-        for delta in deltas:
+        for delta in deltas_mean:
             f_train, f_dev = add_temporal_rolling_mean(
+                delta, train, f_train, dev, f_dev)
+    # Rolling Std of step deltas_std
+    if rolling_std:
+        for delta in deltas_std:
+            f_train, f_dev = add_temporal_rolling_std(
                 delta, train, f_train, dev, f_dev)
     # temporal shift
     if shift:
