@@ -31,6 +31,10 @@ features:
 import pandas as pd
 from sklearn import preprocessing
 from dataset import cols
+import numpy as np
+
+
+daytime_0 = 72.0
 
 
 def fillna_static(df):
@@ -45,13 +49,13 @@ def scale_temporal(train, features_train, dev=None, features_dev=None):
     tmp = pd.DataFrame(
         robust_scaler.fit_transform(train[cols["temporal"]]),
         columns=["%s_sc" % col for col in cols["temporal"]],
-        index=train.ID)
+        index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
             robust_scaler.transform(dev[cols["temporal"]]),
             columns=["%s_sc" % col for col in cols["temporal"]],
-            index=dev.ID)
+            index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
     return features_train, features_dev
 
@@ -67,13 +71,13 @@ def scale_static(train, features_train, dev=None, features_dev=None):
     tmp = pd.DataFrame(
         max_abs_scaler.fit_transform(train[cols["static"]]),
         columns=["%s_sc" % col for col in cols["static"]],
-        index=train.ID)
+        index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
             max_abs_scaler.transform(dev[cols["static"]]),
             columns=["%s_sc" % col for col in cols["static"]],
-            index=dev.ID)
+            index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
     return features_train, features_dev
 
@@ -85,13 +89,13 @@ def binarize_static(train, features_train, dev=None, features_dev=None):
     tmp = pd.DataFrame(
         binarizer.fit_transform(train[cols["static"]]),
         columns=["%s_i" % col for col in cols["static"]],
-        index=train.ID)
+        index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
             binarizer.fit_transform(dev[cols["static"]]),
             columns=["%s_i" % col for col in cols["static"]],
-            index=dev.ID)
+            index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
     return features_train, features_dev
 
@@ -116,7 +120,8 @@ def delta_temporal_station_zone(train, features_train, dev=None,
     return features_train, features_dev
 
 
-def add_temporal_rolling_mean(delta, train, features_train, dev, features_dev):
+def add_temporal_rolling_mean(delta, train, features_train,
+                              dev=None, features_dev=None):
     """ """
     # compute rolling mean of step delta
     rol_df = train.groupby("block")[cols["temporal"]] \
@@ -155,16 +160,96 @@ def add_temporal_rolling_mean(delta, train, features_train, dev, features_dev):
     return features_train, features_dev
 
 
-def make_features(train, dev=None, normalize=False,
-                  rolling_mean=True, deltas=[]):
+def add_temporal_rolling_std(delta, train, features_train,
+                             dev=None, features_dev=None):
     """ """
-    f_train = train[["ID", "zone_id", "daytime", "hour_of_day", "is_calmday"]]
-    f_train.set_index("ID", inplace=True)
-    # f_train.drop("ID", axis=1, inplace=True)
+    # compute rolling mean of step delta
+    rol_df = train.groupby("block")[cols["temporal"]] \
+        .rolling(delta, min_periods=0).std() \
+        .fillna(method="bfill") \
+        .reset_index(0, drop=True)
+    rol_df.rename(
+        columns=dict((col, "%s_std_%i" % (col, delta))
+                     for col in cols["temporal"]),
+        inplace=True)
+    features_train = features_train.merge(
+        rol_df, left_index=True, right_index=True, copy=False)
     if dev is not None:
-        f_dev = dev[["ID", "zone_id", "daytime", "hour_of_day", "is_calmday"]]
-        f_dev.set_index("ID", inplace=True)
-        # f_dev.drop("ID", axis=1, inplace=True)
+        rol_df = dev.groupby("block")[cols["temporal"]] \
+            .rolling(delta, min_periods=0).std() \
+            .reset_index(0, drop=True)
+        rol_df.rename(
+            columns=dict((col, "%s_std_%i" % (col, delta))
+                         for col in cols["temporal"]),
+            inplace=True)
+        features_dev = features_dev.merge(
+            rol_df, left_index=True, right_index=True,
+            suffixes=("", "_std_%i" % delta))
+    # scale it
+    # scaler = preprocessing.RobustScaler()
+    # features_train[
+    #     ["%s_std_%i" % (col, delta) for col in cols["temporal"]]
+    # ] = scaler.fit_transform(
+    #     features_train[["%s_std_%i" % (col, delta)
+    #                     for col in cols["temporal"]]])
+    # if dev is not None:
+    #     features_dev[
+    #         ["%s_std_%i" % (col, delta) for col in cols["temporal"]]
+    #     ] = scaler.transform(
+    #         features_dev[["%s_std_%i" % (col, delta)
+    #                       for col in cols["temporal"]]])
+    return features_train, features_dev
+
+
+def add_temporal_shift(delays, features_train, features_dev=None):
+    """ """
+    for time in delays:
+        for col in cols["temporal"]:
+            features_train["%s_shift_%i" % (col, time)] = \
+                features_train["%s_sc" % col].shift(time) \
+                .fillna(method="bfill")
+    if features_dev is not None:
+        for time in delays:
+            for col in cols["temporal"]:
+                features_dev["%s_shift_%i" % (col, time)] = \
+                    features_dev["%s_sc" % col].shift(time) \
+                    .fillna(method="bfill")
+    return features_train, features_dev
+
+
+def hours_day(df):
+    """ """
+    df.daytime.map(lambda x: (x - daytime_0) % 24)
+    # df["day_of_year"] = df.hour_of_day.map(lambda x: x % 24)
+
+
+def day_of_week(df):
+    """ """
+    df.daytime.map(lambda x: ((x - daytime_0) // 24) % 7)
+
+
+def normalize_df(df):
+    """ """
+    return pd.DataFrame(preprocessing.normalize(df), columns=df.columns,
+                        index=df.index)
+
+
+def make_features(train, dev=None, normalize=False,
+                  delta_temporal=False,
+                  rolling_mean=True, deltas_mean=[],
+                  rolling_std=True, deltas_std=[],
+                  shift=False, delays=[]):
+    """ """
+    f_train = train[["zone_id", "is_calmday"]]
+    # hour of day & day of week
+    f_train["hour_of_day"] = hours_day(train)
+    f_train["day_of_week"] = day_of_week(train)
+    # day of week
+    if dev is not None:
+        f_dev = dev[["zone_id", "is_calmday"]]
+        # hour of day & day of week
+        f_dev["hour_of_day"] = hours_day(dev)
+        f_dev["day_of_week"] = day_of_week(dev)
     else:
         f_dev = None
     # scale temporal features with robust scaling
@@ -174,19 +259,27 @@ def make_features(train, dev=None, normalize=False,
     # binary static features
     f_train, f_dev = binarize_static(train, f_train, dev, f_dev)
     # add diff for temporal data between station value and zone avg
-    f_train, f_dev = delta_temporal_station_zone(
-        train, f_train, dev, f_dev)
+    if delta_temporal:
+        f_train, f_dev = delta_temporal_station_zone(
+            train, f_train, dev, f_dev)
     # Rolling mean of step delta
     if rolling_mean:
-        for delta in deltas:
+        for delta in deltas_mean:
             f_train, f_dev = add_temporal_rolling_mean(
                 delta, train, f_train, dev, f_dev)
-
+    # Rolling Std of step deltas_std
+    if rolling_std:
+        for delta in deltas_std:
+            f_train, f_dev = add_temporal_rolling_std(
+                delta, train, f_train, dev, f_dev)
+    # temporal shift
+    if shift:
+        f_train, f_dev = add_temporal_shift(delays, f_train, f_dev)
     # l2 normalize
     if normalize:
-        f_train = preprocessing.normalize(f_train)
+        f_train = normalize_df(f_train)
         if dev is not None:
-            f_dev = preprocessing.normalize(f_dev)
+            f_dev = normalize_df(f_dev)
     #
     if dev is not None:
         return f_train, f_dev
@@ -194,9 +287,134 @@ def make_features(train, dev=None, normalize=False,
         return f_train
 
 
+def build_sequences(df, seq_length, pad=False, pad_value=0., norm=True):
+    """ """
+    seqs = []
+    for k, g in df.groupby("block"):
+        array = g.set_index("daytime").drop("block", axis=1).values
+        # L2 normalize
+        if norm:
+            array = preprocessing.normalize(array)
+        # seqs = []
+        for k in range(1, seq_length + 1):
+            seqs.append(array[:k])
+        for k in range(seq_length, array.shape[0]):
+            seqs.append(array[k - seq_length:k])
+    if pad:
+        from keras.preprocessing.sequence import pad_sequences
+        seqs = pad_sequences(seqs, maxlen=seq_length, dtype='float32',
+                             padding='pre', truncating='pre', value=pad_value)
+    return seqs
+
+
+def make_seqential_features(train, dev=None, seq_length=12, normalize=False,
+                            delta_temporal=True):
+    """ """
+    columns = ["daytime", "zone_id", "is_calmday", "block"]
+    f_train = train[columns]
+    # hour of day & day of week
+    f_train["hour_of_day"] = hours_day(train)
+    f_train["day_of_week"] = day_of_week(train)
+    if dev is not None:
+        f_dev = dev[columns]
+        # hour of day & day of week
+        f_dev["hour_of_day"] = hours_day(dev)
+        f_dev["day_of_week"] = day_of_week(dev)
+    else:
+        f_dev = None
+    # scale temporal features with robust scaling
+    f_train, f_dev = scale_temporal(train, f_train, dev, f_dev)
+    # scale data with MaxAbsScaler to handle sparse static data
+    f_train, f_dev = scale_static(train, f_train, dev, f_dev)
+    # sequantialize
+    train_seqs = build_sequences(f_train, seq_length=seq_length,
+                                 pad=True, norm=normalize)
+    if dev is not None:
+        dev_seqs = build_sequences(f_dev, seq_length=seq_length,
+                                   pad=True, norm=normalize)
+    # return
+    if dev is not None:
+        return train_seqs, dev_seqs
+    else:
+        return train_seqs
+
+
+def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
+                         delta_temporal=True):
+    """ """
+    columns = ["daytime", "zone_id", "hour_of_day", "is_calmday", "block"]
+    f_train = train[columns]
+    if dev is not None:
+        f_dev = dev[columns]
+    else:
+        f_dev = None
+    # scale temporal features with robust scaling
+    f_train, f_dev = scale_temporal(train, f_train, dev, f_dev)
+    # scale data with MaxAbsScaler to handle sparse static data
+    f_train, f_dev = scale_static(train, f_train, dev, f_dev)
+    # add diff for temporal data between station value and zone avg
+    if delta_temporal:
+        f_train, f_dev = delta_temporal_station_zone(
+            train, f_train, dev, f_dev)
+
+    # temporal features: sequential
+    temp_cols = ["%s_sc" % col for col in cols["temporal"]]
+    if delta_temporal:
+        temp_cols.extend(["delta_%s" % col for col in cols["temporal"]])
+    f_temp_train = f_train[columns + temp_cols].drop("zone_id", axis=1)
+    train_temp_seqs = build_sequences(f_temp_train, seq_length=seq_length,
+                                      pad=True, norm=normalize)
+    if dev is not None:
+        f_temp_dev = f_dev[columns + temp_cols].drop("zone_id", axis=1)
+        dev_temp_seqs = build_sequences(f_temp_dev, seq_length=seq_length,
+                                        pad=True, norm=normalize)
+    # static features
+    static_cols = ["%s_sc" % col for col in cols["static"]] + ["zone_id"]
+    train_static_ds = np.empty(shape=[0, len(static_cols)])
+    gb = f_train.set_index("daytime").groupby("block")
+    for k, group in gb:
+        train_static_ds = np.concatenate(
+            (train_static_ds, group[static_cols].values), axis=0)
+        if normalize:
+            train_static_ds = preprocessing.normalize(train_static_ds)
+    if dev is not None:
+        dev_static_ds = np.empty(shape=[0, len(static_cols)])
+        gb = f_dev.set_index("daytime").groupby("block")
+        for k, group in gb:
+            dev_static_ds = np.concatenate(
+                (dev_static_ds, group[static_cols].values), axis=0)
+        if normalize:
+            dev_static_ds = preprocessing.normalize(dev_static_ds)
+    # return
+    if dev is not None:
+        return [train_temp_seqs, train_static_ds], [dev_temp_seqs, dev_static_ds]
+    else:
+        return [train_temp_seqs, train_static_ds]
+
+
+def get_seq_Y(X, Y, pollutant=None):
+    """ """
+    Y_seq = np.empty(shape=[0])
+    X_u = X[["daytime", "block", "pollutant"]]
+    Y_u = Y.merge(X_u, left_index=True, right_index=True, how="inner")
+    # if no pollutant passed find it
+    if pollutant is None:
+        tmp = Y_u.pollutant.unique()
+        if len(tmp) == 1:
+            pollutant = tmp[0]
+        else:
+            raise ValueError(
+                "Many pollutants in df, please set one in pollutant arg")
+    gb = Y_u[Y_u["pollutant"] == pollutant].groupby("block")
+    for k, group in gb:
+        Y_seq = np.concatenate((Y_seq, group.TARGET.values))
+    return Y_seq
+
+
+
+
 if __name__ == '__main__':
     """ """
-    # data = df[["ID"]]
     pass
 
 

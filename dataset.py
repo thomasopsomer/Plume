@@ -168,6 +168,11 @@ def add_hours_day(df):
     # df["day_of_year"] = df.hour_of_day.map(lambda x: x % 24)
 
 
+def add_day_of_week(df):
+    """ """
+    df["day_of_week"] = df.daytime.map(lambda x: ((x - daytime_0) // 24) % 7)
+
+
 def add_avg_temporal_per_zone(df):
     """ """
     avg_temp = df.groupby(["zone_id", "daytime"]).mean()[cols["temporal"]]
@@ -180,14 +185,16 @@ def preprocess_dataset(df):
     """ """
     # add hour of day (0-23)
     add_hours_day(df)
+    add_day_of_week(df)
     # add avg temporal value per zone
-    df = add_avg_temporal_per_zone(df)
+    # df = add_avg_temporal_per_zone(df)
     return df
 
 
 def get_Y(Y_df, X_df):
     """ """
-    return pd.merge(Y_df, X_df[["ID"]], how='inner').set_index("ID")
+    # return pd.merge(Y_df, X_df[["ID"]], how='inner').set_index("ID")
+    return Y_df.loc[Y_df.index.isin(X_df.index)]
 
 
 if __name__ == '__main__':

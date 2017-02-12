@@ -6,7 +6,9 @@ from dataset import (
     split_pollutant_dataset, preprocess_dataset, split_train_dev,
     get_Y, zone_station_train, zone_station_dev
 )
-from features import make_features
+from features import (
+    make_features, make_seqential_features, get_seq_Y
+)
 import pandas as pd
 
 from sklearn import linear_model
@@ -46,9 +48,9 @@ X_test_path = "/Users/thomasopsomer/data/plume-data/X_test.csv"
 Y_train_path = "/Users/thomasopsomer/data/plume-data/Y_train.csv"
 
 # load all dataset
-df = pd.read_csv(X_train_path)
+df = pd.read_csv(X_train_path, index_col="ID")
 df = preprocess_dataset(df)
-Y = pd.read_csv(Y_train_path)
+Y = pd.read_csv(Y_train_path, index_col="ID")
 
 
 # split for each pollutant
