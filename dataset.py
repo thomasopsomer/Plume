@@ -91,25 +91,23 @@ def get_zone_station(df):
     return Z
 
 
+def add_block(df):
+    """ """
+    df["block"] = df.pollutant.map(str) + \
+        df.zone_id.map(lambda x: "-%s" % int(x)) + \
+        df.station_id.map(lambda x: "-%s" % int(x))
+
+
 def split_pollutant_dataset(df):
     """ """
-    r = {}
-    zone_station = df.groupby(["zone_id", "station_id"]).groups.keys()
-    for poll in POLLUTANT:
-        for zone, station_id in zone_station:
-            d = df[(df["pollutant"] == poll) &
-                   (df["zone_id"] == zone) &
-                   (df["station_id"] == station_id)]
-            name = "%s-%i-%i" % (poll, zone, station_id)
-            d["block"] = name
-            r[name] = d
+    # add block
+    if "block" not in df:
+        add_block(df)
+    # split according to pollutant
+    NO2_df = df[df.pollutant == "NO2"]
+    PM10_df = df[df.pollutant == "PM10"]
+    PM25_df = df[df.pollutant == "PM2_5"]
     #
-    NO2_df = pd.concat([v for k, v in r.items() if k.startswith("NO2")],
-                       axis=0)
-    PM10_df = pd.concat([v for k, v in r.items() if k.startswith("PM10")],
-                        axis=0)
-    PM25_df = pd.concat([v for k, v in r.items() if k.startswith("PM2_5")],
-                        axis=0)
     return NO2_df, PM10_df, PM25_df
 
 

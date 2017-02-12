@@ -69,7 +69,7 @@ def predict(model_dict, dataset):
     return Y_pred
 
 
-def train_predict(train, test, Y_train, model_dict=None):
+def train_predict(train, test, Y_train, model_dict=None, output_path=None):
     """ """
     pollutants = ["NO2", "PM10", "PM25"]
     # split dataset, build data dict
@@ -94,6 +94,9 @@ def train_predict(train, test, Y_train, model_dict=None):
             xgb_model.fit(f[poll]["X_train"], f[poll]["Y"])
             # store model
             model_dict[poll] = xgb_model
+        if output_path is not None:
+            with open(output_path, "wb") as fout:
+                pickle.dump(model_dict, fout)
     # predict on train set
     preds = []
     for poll in pollutants:
@@ -135,11 +138,15 @@ if __name__ == '__main__':
     X_test = pd.read_csv(X_test_path, index_col="ID")
     X_test = preprocess_dataset(X_test)
     # train
-    model_dict = train(X_train, Y_train)
-    # save models
-    pickle.dump(model_dict, open("model/model_dict_2.pkl", 'wb'))
-    # predict
-    Y_pred = predict(model_dict, X_test)
+    # model_dict = train(X_train, Y_train)
+    # # save models
+    # pickle.dump(model_dict, open("model/model_dict_3.pkl", 'wb'))
+    # # predict
+    # Y_pred = predict(model_dict, X_test)
+    y_pred = train_predict(X_train, X_test, Y_train,
+                           output_path="model/model_dict_3.pkl")
+    y_pred.to_csv("pred.csv")
 
-
+    with open("model/model_dict_3.pkl", "rb") as f:
+        model_dict = pickle.load(f)
 

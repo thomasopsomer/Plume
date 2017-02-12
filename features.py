@@ -126,7 +126,8 @@ def add_temporal_rolling_mean(delta, train, features_train,
     # compute rolling mean of step delta
     rol_df = train.groupby("block")[cols["temporal"]] \
         .rolling(delta, min_periods=0).mean() \
-        .reset_index(0, drop=True)
+        .reset_index(0, drop=True) \
+        .sort_index()
     rol_df.rename(
         columns=dict((col, "%s_mean_%i" % (col, delta))
                      for col in cols["temporal"]),
@@ -136,7 +137,8 @@ def add_temporal_rolling_mean(delta, train, features_train,
     if dev is not None:
         rol_df = dev.groupby("block")[cols["temporal"]] \
             .rolling(delta, min_periods=0).mean() \
-            .reset_index(0, drop=True)
+            .reset_index(0, drop=True) \
+            .sort_index()
         rol_df.rename(
             columns=dict((col, "%s_mean_%i" % (col, delta))
                          for col in cols["temporal"]),
@@ -167,7 +169,8 @@ def add_temporal_rolling_std(delta, train, features_train,
     rol_df = train.groupby("block")[cols["temporal"]] \
         .rolling(delta, min_periods=0).std() \
         .fillna(method="bfill") \
-        .reset_index(0, drop=True)
+        .reset_index(0, drop=True) \
+        .sort_index()
     rol_df.rename(
         columns=dict((col, "%s_std_%i" % (col, delta))
                      for col in cols["temporal"]),
@@ -177,7 +180,8 @@ def add_temporal_rolling_std(delta, train, features_train,
     if dev is not None:
         rol_df = dev.groupby("block")[cols["temporal"]] \
             .rolling(delta, min_periods=0).std() \
-            .reset_index(0, drop=True)
+            .reset_index(0, drop=True) \
+            .sort_index()
         rol_df.rename(
             columns=dict((col, "%s_std_%i" % (col, delta))
                          for col in cols["temporal"]),
@@ -219,13 +223,13 @@ def add_temporal_shift(delays, features_train, features_dev=None):
 
 def hours_day(df):
     """ """
-    df.daytime.map(lambda x: (x - daytime_0) % 24)
+    return df.daytime.map(lambda x: (x - daytime_0) % 24)
     # df["day_of_year"] = df.hour_of_day.map(lambda x: x % 24)
 
 
 def day_of_week(df):
     """ """
-    df.daytime.map(lambda x: ((x - daytime_0) // 24) % 7)
+    return df.daytime.map(lambda x: ((x - daytime_0) // 24) % 7)
 
 
 def normalize_df(df):
