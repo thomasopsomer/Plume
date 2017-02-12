@@ -34,6 +34,9 @@ from dataset import cols
 import numpy as np
 
 
+daytime_0 = 72.0
+
+
 def fillna_static(df):
     """ """
     for col in cols["static"]:
@@ -214,6 +217,17 @@ def add_temporal_shift(delays, features_train, features_dev=None):
     return features_train, features_dev
 
 
+def hours_day(df):
+    """ """
+    df.daytime.map(lambda x: (x - daytime_0) % 24)
+    # df["day_of_year"] = df.hour_of_day.map(lambda x: x % 24)
+
+
+def day_of_week(df):
+    """ """
+    df.daytime.map(lambda x: ((x - daytime_0) // 24) % 7)
+
+
 def normalize_df(df):
     """ """
     return pd.DataFrame(preprocessing.normalize(df), columns=df.columns,
@@ -226,9 +240,16 @@ def make_features(train, dev=None, normalize=False,
                   rolling_std=True, deltas_std=[],
                   shift=False, delays=[]):
     """ """
-    f_train = train[["zone_id", "hour_of_day", "is_calmday"]]
+    f_train = train[["zone_id", "is_calmday"]]
+    # hour of day & day of week
+    f_train["hour_of_day"] = hours_day(train)
+    f_train["day_of_week"] = day_of_week(train)
+    # day of week
     if dev is not None:
-        f_dev = dev[["zone_id", "hour_of_day", "is_calmday"]]
+        f_dev = dev[["zone_id", "is_calmday"]]
+        # hour of day & day of week
+        f_dev["hour_of_day"] = hours_day(dev)
+        f_dev["day_of_week"] = day_of_week(dev)
     else:
         f_dev = None
     # scale temporal features with robust scaling
@@ -289,20 +310,22 @@ def build_sequences(df, seq_length, pad=False, pad_value=0., norm=True):
 def make_seqential_features(train, dev=None, seq_length=12, normalize=False,
                             delta_temporal=True):
     """ """
-    columns = ["daytime", "zone_id", "hour_of_day", "is_calmday", "block"]
+    columns = ["daytime", "zone_id", "is_calmday", "block"]
     f_train = train[columns]
+    # hour of day & day of week
+    f_train["hour_of_day"] = hours_day(train)
+    f_train["day_of_week"] = day_of_week(train)
     if dev is not None:
         f_dev = dev[columns]
+        # hour of day & day of week
+        f_dev["hour_of_day"] = hours_day(dev)
+        f_dev["day_of_week"] = day_of_week(dev)
     else:
         f_dev = None
     # scale temporal features with robust scaling
     f_train, f_dev = scale_temporal(train, f_train, dev, f_dev)
     # scale data with MaxAbsScaler to handle sparse static data
     f_train, f_dev = scale_static(train, f_train, dev, f_dev)
-    # add diff for temporal data between station value and zone avg
-    f_train, f_dev = delta_temporal_station_zone(
-        train, f_train, dev, f_dev)
-
     # sequantialize
     train_seqs = build_sequences(f_train, seq_length=seq_length,
                                  pad=True, norm=normalize)
