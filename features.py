@@ -49,13 +49,13 @@ def scale_temporal(train, features_train, dev=None, features_dev=None):
     robust_scaler = preprocessing.RobustScaler()
     tmp = pd.DataFrame(
         robust_scaler.fit_transform(train[cols["temporal"]]),
-        columns=["%s_sc" % col for col in cols["temporal"]],
+        columns=[col for col in cols["temporal"]],
         index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
             robust_scaler.transform(dev[cols["temporal"]]),
-            columns=["%s_sc" % col for col in cols["temporal"]],
+            columns=[col for col in cols["temporal"]],
             index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
     return features_train, features_dev
@@ -211,13 +211,13 @@ def add_temporal_shift(delays, features_train, features_dev=None):
     for time in delays:
         for col in cols["temporal"]:
             features_train["%s_shift_%i" % (col, time)] = \
-                features_train["%s_sc" % col].shift(time) \
+                features_train[col].shift(time) \
                 .fillna(method="bfill")
     if features_dev is not None:
         for time in delays:
             for col in cols["temporal"]:
                 features_dev["%s_shift_%i" % (col, time)] = \
-                    features_dev["%s_sc" % col].shift(time) \
+                    features_dev[col].shift(time) \
                     .fillna(method="bfill")
     return features_train, features_dev
 
@@ -299,6 +299,11 @@ def normalize_df(df):
     """ """
     return pd.DataFrame(preprocessing.normalize(df), columns=df.columns,
                         index=df.index)
+
+
+def drop_cols(df, cols):
+    """ """
+    return df[[col for col in df.columns if col not in cols]]
 
 
 def make_features(train, dev=None, normalize=False,
@@ -438,7 +443,7 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
             train, f_train, dev, f_dev)
 
     # temporal features: sequential
-    temp_cols = ["%s_sc" % col for col in cols["temporal"]]
+    temp_cols = [col for col in cols["temporal"]]
     if delta_temporal:
         temp_cols.extend(["delta_%s" % col for col in cols["temporal"]])
     f_temp_train = f_train[columns + temp_cols].drop("zone_id", axis=1)
