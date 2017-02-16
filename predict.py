@@ -14,6 +14,46 @@ from sklearn.metrics import mean_squared_error
 import cPickle as pickle
 
 
+features_config = {
+    "NO2": {
+        "rolling_mean": True,
+        "deltas_mean": [6, 48, 96, 120, 192],
+        "rolling_std": True,
+        "deltas_std": [24, 48, 96, 120],
+        "temp_dec_freq": 12
+    },
+    "PM10": {
+        "rolling_mean": True,
+        "deltas_mean": [6, 48, 96, 120, 192],
+        "rolling_std": True,
+        "deltas_std": [24, 48, 96],
+        "temp_dec_freq": 48
+    },
+    "PM25": {
+        "rolling_mean": True,
+        "deltas_mean": [6, 48, 96, 120, 192],
+        "rolling_std": True,
+        "deltas_std": [24, 48, 96],
+        "temp_dec_freq": 48
+    },
+}
+
+model_config = {
+    "NO2": {
+        "n_estimators": 300,
+        "reg_lambda": 1
+    },
+    "PM10": {
+        "n_estimators": 300,
+        "reg_lambda": 1
+    },
+    "PM25": {
+        "n_estimators": 250,
+        "reg_lambda": 1
+    }
+}
+
+
 def train(dataset, labels):
     """ """
     pollutants = ["NO2", "PM10", "PM25"]
@@ -25,14 +65,13 @@ def train(dataset, labels):
     f = {}
     for poll in pollutants:
         f[poll] = {}
-        f[poll]["X"] = make_features(ds[poll], rolling_mean=True,
-                                     deltas_mean=[24, 48, 96, 144, 288])
+        f[poll]["X"] = make_features(ds[poll], **features_config[poll])
         f[poll]["Y"] = get_Y(labels, ds[poll])
     # train model for each pollutant
     model_dict = {}
     for poll in pollutants:
         xgb_model = xgb.XGBRegressor(max_depth=6, n_estimators=200,
-                                     reg_lambda=10)
+                                     reg_lambda=1)
         # train model
         xgb_model.fit(f[poll]["X"], f[poll]["Y"])
         # mse on training set
@@ -50,12 +89,9 @@ def predict(model_dict, dataset):
     # split dataset
     NO2_df, PM10_df, PM25_df = split_pollutant_dataset(dataset)
     # build features
-    NO2_f = make_features(NO2_df, rolling_mean=True,
-                          deltas_mean=[24, 48, 96, 144, 288])
-    PM10_f = make_features(PM10_df, rolling_mean=True,
-                           deltas_mean=[24, 48, 96, 144, 288])
-    PM25_f = make_features(PM25_df, rolling_mean=True,
-                           deltas_mean=[24, 48, 96, 144, 288])
+    NO2_f = make_features(NO2_df, **features_config["NO2"])
+    PM10_f = make_features(PM10_df, **features_config["PM10"])
+    PM25_f = make_features(PM25_df, **features_config["PM25"])
     # apply each model
     Y_pred_NO2 = pd.DataFrame(model_dict["NO2"].predict(NO2_f),
                               columns=["TARGET"], index=NO2_f.index)
@@ -80,16 +116,14 @@ def train_predict(train, test, Y_train, model_dict=None, output_path=None):
     for poll in pollutants:
         f[poll] = {}
         f[poll]["X_train"], f[poll]["X_test"] = make_features(
-            train_ds[poll], dev=test_ds[poll],
-            rolling_mean=True, deltas_mean=[24, 48, 96, 144, 288])
+            train_ds[poll], dev=test_ds[poll], **features_config[poll])
         if Y_train is not None:
             f[poll]["Y"] = get_Y(Y_train, train_ds[poll])
     # train model for each pollutant
     if model_dict is None:
         model_dict = {}
         for poll in pollutants:
-            xgb_model = xgb.XGBRegressor(max_depth=6, n_estimators=200,
-                                         reg_lambda=10)
+            xgb_model = xgb.XGBRegressor(max_depth=6, **model_config[poll])
             # train model
             xgb_model.fit(f[poll]["X_train"], f[poll]["Y"])
             # store model
