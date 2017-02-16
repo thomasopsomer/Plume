@@ -215,7 +215,9 @@ from sklearn.preprocessing import normalize
 xgb_model = xgb.XGBRegressor(max_depth=6, n_estimators=200)
 
 xgb_model.fit(PM25_train_f, Y_PM25_train)
-xgb_model.fit(NO2_train_f, Y_NO2_train)
+xgb_model.fit(NO2_train_f, Y_NO2_train,
+              eval_set=(NO2_dev_f, Y_NO2_dev),
+              eval_metric="mse")
 
 evaluate_mse(xgb_model, PM25_train_f, PM25_dev_f,
              Y_PM25_train, Y_PM25_dev)

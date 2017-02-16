@@ -32,6 +32,7 @@ import pandas as pd
 from sklearn import preprocessing
 from dataset import cols
 import numpy as np
+import datetime
 
 
 daytime_0 = 72.0
@@ -221,6 +222,68 @@ def add_temporal_shift(delays, features_train, features_dev=None):
     return features_train, features_dev
 
 
+def add_temporal_decomposition(freq, train, features_train, dev=None,
+                               features_dev=None):
+    """ """
+    temporal_train_dec = decompose_temporal(freq, train)
+    # scale it
+    scaler = preprocessing.StandardScaler()
+    temporal_train_dec[temporal_train_dec.columns] = \
+        scaler.fit_transform(temporal_train_dec)
+    # merge
+    features_train = features_train.merge(
+        temporal_train_dec, left_index=True, right_index=True)
+    if dev is not None:
+        temporal_dev_dec = decompose_temporal(freq, dev)
+        # scale it
+        temporal_dev_dec[temporal_dev_dec.columns] = \
+            scaler.transform(temporal_dev_dec)
+        # merge
+        features_dev = features_dev.merge(
+            temporal_dev_dec, left_index=True, right_index=True)
+    return features_train, features_dev
+
+
+def decompose_temporal(freq, train):
+    """ """
+    import statsmodels.api as sm
+    hour = datetime.timedelta(hours=1)
+    d = datetime.datetime(2014, 1, 1, 0, 0)
+    decompose = []
+    for k, g in train.groupby("block"):
+        #
+        g["daytime"] = g["daytime"].map(lambda x: d + int(x) * hour)
+        tmp = g.set_index(pd.DatetimeIndex(g["daytime"]))
+        acc = g[["daytime"]]
+        for col in cols["temporal"]:
+            dec = sm.tsa.seasonal_decompose(tmp[[col]], freq=freq)
+            res = concat_decomposition(dec)
+            res = res.fillna(0.)
+            acc = acc.merge(res, left_index=False, right_index=True,
+                            left_on="daytime")
+        decompose.append(acc)
+    return pd.concat(decompose, axis=0).drop("daytime", axis=1).sort_index()
+
+
+def concat_decomposition(dec):
+    """ """
+    to_merge = [
+        dec.seasonal.rename(
+            index=str,
+            columns={dec.seasonal.columns[0]: "%s_seasonal" % dec.seasonal.columns[0]}),
+        dec.trend.rename(
+            index=str,
+            columns={dec.trend.columns[0]: "%s_trend" % dec.trend.columns[0]}),
+        dec.resid.rename(
+            index=str,
+            columns={dec.resid.columns[0]: "%s_resid" % dec.resid.columns[0]}),
+    ]
+    res = pd.concat(to_merge, axis=1)
+    # cast index to datetime
+    res = res.set_index(pd.DatetimeIndex(res.index))
+    return res
+
+
 def hours_day(df):
     """ """
     return df.daytime.map(lambda x: (x - daytime_0) % 24)
@@ -242,15 +305,17 @@ def make_features(train, dev=None, normalize=False,
                   delta_temporal=False,
                   rolling_mean=True, deltas_mean=[],
                   rolling_std=True, deltas_std=[],
-                  shift=False, delays=[]):
+                  shift=False, delays=[],
+                  temp_dec_freq=0,
+                  binary_staic=False):
     """ """
-    f_train = train[["zone_id", "is_calmday"]]
+    f_train = train[["zone_id", "is_calmday", "daytime"]]
     # hour of day & day of week
     f_train["hour_of_day"] = hours_day(train)
     f_train["day_of_week"] = day_of_week(train)
     # day of week
     if dev is not None:
-        f_dev = dev[["zone_id", "is_calmday"]]
+        f_dev = dev[["zone_id", "is_calmday", "daytime"]]
         # hour of day & day of week
         f_dev["hour_of_day"] = hours_day(dev)
         f_dev["day_of_week"] = day_of_week(dev)
@@ -261,7 +326,8 @@ def make_features(train, dev=None, normalize=False,
     # scale data with MaxAbsScaler to handle sparse static data
     f_train, f_dev = scale_static(train, f_train, dev, f_dev)
     # binary static features
-    f_train, f_dev = binarize_static(train, f_train, dev, f_dev)
+    if binary_staic:
+        f_train, f_dev = binarize_static(train, f_train, dev, f_dev)
     # add diff for temporal data between station value and zone avg
     if delta_temporal:
         f_train, f_dev = delta_temporal_station_zone(
@@ -279,6 +345,16 @@ def make_features(train, dev=None, normalize=False,
     # temporal shift
     if shift:
         f_train, f_dev = add_temporal_shift(delays, f_train, f_dev)
+    # temporal decomposition
+    if temp_dec_freq:
+        f_train, f_dev = add_temporal_decomposition(
+            temp_dec_freq, train, f_train, dev, f_dev)
+    # drop daytime col
+    if "daytime" in f_train:
+        f_train.drop("daytime", axis=1, inplace=True)
+    if dev is not None:
+        if "daytime" in f_dev:
+            f_dev.drop("daytime", axis=1, inplace=True)
     # l2 normalize
     if normalize:
         f_train = normalize_df(f_train)
