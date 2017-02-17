@@ -20,21 +20,24 @@ features_config = {
         "deltas_mean": [6, 48, 96, 120, 192],
         "rolling_std": True,
         "deltas_std": [24, 48, 96, 120],
-        "temp_dec_freq": 12
+        "temp_dec_freq": 12,
+        "pollutant": False
     },
     "PM10": {
         "rolling_mean": True,
         "deltas_mean": [6, 48, 96, 120, 192],
         "rolling_std": True,
         "deltas_std": [24, 48, 96],
-        "temp_dec_freq": 48
+        "temp_dec_freq": 48,
+        "pollutant": False
     },
     "PM25": {
         "rolling_mean": True,
         "deltas_mean": [6, 48, 96, 120, 192],
         "rolling_std": True,
         "deltas_std": [24, 48, 96],
-        "temp_dec_freq": 48
+        "temp_dec_freq": 48,
+        "pollutant": False
     },
 }
 
@@ -166,11 +169,11 @@ if __name__ == '__main__':
     X_test_path = "/Users/thomasopsomer/data/plume-data/X_test.csv"
     Y_train_path = "/Users/thomasopsomer/data/plume-data/Y_train.csv"
     # prepare data / features
-    X_train = pd.read_csv(X_train_path, index_col="ID")
-    X_train = preprocess_dataset(X_train)
+    train = pd.read_csv(X_train_path, index_col="ID")
+    train = preprocess_dataset(train)
     Y_train = pd.read_csv(Y_train_path, index_col="ID")
-    X_test = pd.read_csv(X_test_path, index_col="ID")
-    X_test = preprocess_dataset(X_test)
+    test = pd.read_csv(X_test_path, index_col="ID")
+    test = preprocess_dataset(test)
     # train
     # model_dict = train(X_train, Y_train)
     # # save models
