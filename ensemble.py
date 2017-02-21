@@ -46,20 +46,18 @@ roll_mean_conf = {
     5: ["precipintensity", "precipprobability"],
     6: ["temperature"],
     10: ["precipintensity"],
-    12: ["windspeed", "pressure", "cloudcover"],
+    12: ["pressure", "cloudcover"],
     18: ["windbearingcos", "windbearingsin", "temperature"],
     24: ["pressure", "precipprobability", "windbearingcos"],
     32: ["windbearingsin"],
     48: ["pressure", "windbearingcos", "windbearingsin"],
     15: ["windspeed"],
-    96: ["windbearingcos", "temperature"],
+    96: ["windbearingcos", "temperature", "windspeed"],
     144: ["temperature", "pressure"],
     288: ["temperature", "cloudcover"],
 }
 
 shift_config = {
-    "precipintensity": [2],
-    "precipprobability": [2],
     "temperature": [8, 14, 20, 96],
     "cloudcover": [2, 5, 48],
     "pressure": [2, 24, 72],
@@ -68,18 +66,23 @@ shift_config = {
     "windspeed": [2, 4]
 }
 
+NO2_train, NO2_dev = split_train_dev(NO2_df, zone_station_train, zone_station_dev)
+
+
 NO2_train_f, NO2_dev_f = make_features(
     NO2_train, NO2_dev,
     rolling_mean=True, roll_mean_conf=roll_mean_conf,
-    shift_config=shift_config,
+    # shift_config=shift_config,
     temp_dec_freq=12, log=False,
-    remove_temporal=True)
+    remove_temporal=True,
+    rolling_std=True,
+    deltas_std=[24, 48, 96, 120])
 
 Y_NO2_train = get_Y(Y, NO2_train)
 Y_NO2_dev = get_Y(Y, NO2_dev)
 
 # xgboost
-xgb_model = xgb.XGBRegressor(max_depth=7, n_estimators=100, reg_lambda=10)
+xgb_model = xgb.XGBRegressor(max_depth=7, n_estimators=200, reg_lambda=1)
 
 xgb_model.fit(NO2_train_f, Y_NO2_train,
               eval_set=[(NO2_dev_f, Y_NO2_dev)],
@@ -88,15 +91,17 @@ xgb_model.fit(NO2_train_f, Y_NO2_train,
 evaluate_mse(xgb_model, NO2_train_f, NO2_dev_f,
              Y_NO2_train, Y_NO2_dev)
 
+# random forest
 rf = RandomForestRegressor(
-    n_estimators=100, max_depth=None, min_samples_split=2,
+    n_estimators=10, max_depth=None, min_samples_split=2,
     min_samples_leaf=1, min_weight_fraction_leaf=0.0,
     max_features='auto', max_leaf_nodes=None, min_impurity_split=1e-07,
-    bootstrap=True, n_jobs=3)
+    bootstrap=True, n_jobs=4)
 
+NO2_train_f, Y_NO2_train = shuffle_XY(NO2_train_f, Y_NO2_train)
 rf.fit(NO2_train_f, Y_NO2_train)
 
-
+evaluate_mse(rf, NO2_train_f, NO2_dev_f, Y_NO2_train, Y_NO2_dev)
 
 
 

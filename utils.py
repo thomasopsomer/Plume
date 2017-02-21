@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import pandas as pd
 from sklearn.metrics import mean_squared_error
+import numpy as np
 
 
 def evaluate_mse(model, x_train, x_dev, y_train, y_dev):
@@ -24,3 +25,24 @@ def build_test_fold(train, dev):
     b = pd.DataFrame(0, index=dev.index, columns=["fold"])
     test_fold = pd.concat([a, b], axis=0)
     return test_fold
+
+
+def get_feature_importances(df, model):
+    """Plot feature importance like xgb.plot_importances()"""
+    import matplotlib.pyplot as plt
+    importances = model.feature_importances_
+    features = df.columns
+    indices = np.argsort(importances)
+    plt.figure(1)
+    plt.title('Feature Importances')
+    plt.barh(np.arange(0, len(indices) * 2, 2), importances[indices],
+             height=1, color='b', align='center')
+    plt.yticks(np.arange(0, len(indices) * 2, 2), features[indices])
+    plt.margins(y=0)
+    plt.show()
+
+
+def shuffle_XY(X, Y):
+    """ """
+    tmp = pd.concat([X, Y], axis=1).sample(frac=1)
+    return tmp[X.columns], tmp[Y.columns]
