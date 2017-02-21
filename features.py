@@ -34,17 +34,24 @@ from dataset import cols
 import numpy as np
 import datetime
 
+# deal with warning message
+pd.options.mode.chained_assignment = None
 
 daytime_0 = 72.0
+
+temporal_dec_columns = [
+    "%s_%s" % (col, dec)
+    for col in cols["temporal"]
+    for dec in ["seasonal", "trend", "resid"]
+]
 
 
 def fillna_static(df, log=False):
     """ """
-    for col in cols["static"]:
-        if log:
-            df[col] = np.log(df.col.fillna(1.0))
-        else:
-            df[col] = df[col].fillna(0)
+    if log:
+        return np.log(df[cols["static"]].fillna(0.) + 1)
+    else:
+        return df[cols["static"]].fillna(0.)
 
 
 def scale_temporal(train, features_train, dev=None, features_dev=None):
@@ -64,22 +71,19 @@ def scale_temporal(train, features_train, dev=None, features_dev=None):
     return features_train, features_dev
 
 
-def scale_static(train, features_train, dev=None, features_dev=None, log=False):
+def scale_static(train, features_train, dev=None, features_dev=None,
+                 log=False):
     """ """
-    # fill static NaN with 0
-    fillna_static(train, log)
-    if dev is not None:
-        fillna_static(dev, log)
     # scale data with MaxAbsScaler to handle sparse static data
     max_abs_scaler = preprocessing.MaxAbsScaler()
     tmp = pd.DataFrame(
-        max_abs_scaler.fit_transform(train[cols["static"]]),
+        max_abs_scaler.fit_transform(fillna_static(train)),
         columns=["%s_sc" % col for col in cols["static"]],
         index=train.index)
     features_train = pd.concat([features_train, tmp], axis=1)
     if dev is not None:
         tmp = pd.DataFrame(
-            max_abs_scaler.transform(dev[cols["static"]]),
+            max_abs_scaler.transform(fillna_static(dev)),
             columns=["%s_sc" % col for col in cols["static"]],
             index=dev.index)
         features_dev = pd.concat([features_dev, tmp], axis=1)
@@ -244,17 +248,25 @@ def add_temporal_shift(config, features_train, features_dev=None):
 def add_temporal_decomposition(freq, train, features_train, dev=None,
                                features_dev=None, scale=False):
     """ """
-    temporal_train_dec = decompose_temporal(freq, train)
+    #
+    if not all([col in train for col in temporal_dec_columns]):
+        temporal_train_dec = decompose_temporal(freq, train)
+    else:
+        temporal_train_dec = train[temporal_dec_columns]
     # scale it
     if scale:
-        scaler = preprocessing.StandardScaler(with_mean=True)
+        scaler = preprocessing.StandardScaler()
         temporal_train_dec[temporal_train_dec.columns] = \
             scaler.fit_transform(temporal_train_dec)
     # merge
     features_train = features_train.merge(
         temporal_train_dec, left_index=True, right_index=True)
+    #
     if dev is not None:
-        temporal_dev_dec = decompose_temporal(freq, dev)
+        if not all([col in dev for col in temporal_dec_columns]):
+            temporal_dev_dec = decompose_temporal(freq, dev)
+        else:
+            temporal_dev_dec = dev[temporal_dec_columns]
         # scale it
         if scale:
             temporal_dev_dec[temporal_dev_dec.columns] = \
@@ -313,15 +325,21 @@ def to_log(df):
     return res
 
 
-def hours_day(df):
+def hours_day(df, scale=False):
     """ """
-    return df.daytime.map(lambda x: (x - daytime_0) % 24)
+    hod = df.daytime.map(lambda x: ((x - daytime_0) % 24) * 1.0 / 24)
+    if scale:
+        hod = hod * 1.0 / 24
+    return hod
     # df["day_of_year"] = df.hour_of_day.map(lambda x: x % 24)
 
 
-def day_of_week(df):
+def day_of_week(df, scale=False):
     """ """
-    return df.daytime.map(lambda x: ((x - daytime_0) // 24) % 7)
+    dow = df.daytime.map(lambda x: ((x - daytime_0) // 24) % 7)
+    if scale:
+        dow = dow * 1.0 / 7
+    return dow
 
 
 def normalize_df(df):
@@ -335,10 +353,10 @@ def drop_cols(df, cols):
     return df[[col for col in df.columns if col not in cols]]
 
 
-def make_features(train, dev=None, scale_temp=True,
+def make_features(train, dev=None, scale_temp=True, scale_time=True,
                   rolling_mean=True, deltas_mean=[], roll_mean_conf={},
                   rolling_std=True, deltas_std=[],
-                  shift_config={}, temp_dec_freq=0,
+                  shift_config={}, temp_dec_freq=0, scale_dec=True,
                   binary_static=False,
                   pollutant=False,
                   remove_temporal=False, log=False):
@@ -349,16 +367,16 @@ def make_features(train, dev=None, scale_temp=True,
         encoder = preprocessing.LabelEncoder()
         f_train["pollutant"] = encoder.fit_transform(train["pollutant"])
     # hour of day & day of week
-    f_train["hour_of_day"] = hours_day(train)
-    f_train["day_of_week"] = day_of_week(train)
+    f_train["hour_of_day"] = hours_day(train, scale_time)
+    f_train["day_of_week"] = day_of_week(train, scale_time)
     # day of week
     if dev is not None:
         f_dev = dev[general_col]
         if pollutant:
             f_dev["pollutant"] = encoder.fit_transform(dev["pollutant"])
         # hour of day & day of week
-        f_dev["hour_of_day"] = hours_day(dev)
-        f_dev["day_of_week"] = day_of_week(dev)
+        f_dev["hour_of_day"] = hours_day(dev, scale_time)
+        f_dev["day_of_week"] = day_of_week(dev, scale_time)
     else:
         f_dev = None
     # to log for temperature and pressure
@@ -399,7 +417,7 @@ def make_features(train, dev=None, scale_temp=True,
     # temporal decomposition
     if temp_dec_freq:
         f_train, f_dev = add_temporal_decomposition(
-            temp_dec_freq, train, f_train, dev, f_dev)
+            temp_dec_freq, train, f_train, dev, f_dev, scale=scale_dec)
     if remove_temporal:
         f_train = drop_cols(f_train, cols["temporal"])
         if dev is not None:
@@ -425,7 +443,7 @@ def build_sequences(df, seq_length, pad=False, pad_value=0., norm=True):
         g["ID"] = g.index
         g = g.set_index("daytime").sort_index().drop("block", axis=1)
         array = g.drop("ID", axis=1).values
-        ids.append(g.ID)
+        # ids.append(g.ID)
         np.concatenate((ids, g.ID.as_matrix()), axis=0)
         # L2 normalize
         if norm:
@@ -442,22 +460,23 @@ def build_sequences(df, seq_length, pad=False, pad_value=0., norm=True):
     return seqs, ids
 
 
-def make_seqential_features(train, dev=None, seq_length=12, normalize=False,
+def make_seqential_features(train, dev, seq_length=12, normalize=False,
                             temp_dec_freq=0, pollutant=False,
                             remove_temporal=False, log=False):
     """ """
     # make standard features
-    f_train, f_dev = make_features(train, dev=dev, scale_temporal=True,
-                                   temp_dec_freq=temp_dec_freq,
-                                   pollutant=pollutant,
+    f_train, f_dev = make_features(train, dev=dev, temp_dec_freq=temp_dec_freq,
+                                   scale_dec=True, pollutant=pollutant,
                                    remove_temporal=remove_temporal, log=log)
     # sequantialize
-    # add block column
+    # add block and daytime column
     f_train["block"] = train["block"]
+    f_train["daytime"] = train["daytime"]
     train_seqs, train_ids = build_sequences(f_train, seq_length=seq_length,
                                             pad=True, norm=normalize)
     if dev is not None:
         f_dev["block"] = dev["block"]
+        f_dev["daytime"] = dev["daytime"]
         dev_seqs, dev_ids = build_sequences(f_dev, seq_length=seq_length,
                                             pad=True, norm=normalize)
     # return
@@ -483,6 +502,7 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
 
     # add block column
     f_train["block"] = train["block"]
+    f_train["daytime"] = train["daytime"]
     # temporal features: sequential
     temp_cols = [col for col in cols["temporal"]]
     f_temp_train = f_train[columns + temp_cols].drop("zone_id", axis=1)
@@ -490,6 +510,7 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
         f_temp_train, seq_length=seq_length, pad=True, norm=normalize)
     if dev is not None:
         f_dev["block"] = dev["block"]
+        f_dev["daytime"] = dev["daytime"]
         f_temp_dev = f_dev[columns + temp_cols].drop("zone_id", axis=1)
         dev_temp_seqs, dev_ids = build_sequences(
             f_temp_dev, seq_length=seq_length, pad=True, norm=normalize)
@@ -537,7 +558,6 @@ def get_seq_Y(X, Y, pollutant=None):
     for k, group in gb:
         Y_seq = np.concatenate((Y_seq, group.TARGET.values))
     return Y_seq
-
 
 
 if __name__ == '__main__':

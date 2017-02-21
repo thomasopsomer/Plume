@@ -116,7 +116,7 @@ def split_pollutant_dataset(df, pm=False):
 
 def split_train_dev(df, zone_station_train=None,
                     zone_station_dev=None,
-                    seed=42):
+                    seed=42, info=False):
     """
     split the train data set in to a train and dev dataset
     make sur that the dev dataset have different station
@@ -127,23 +127,13 @@ def split_train_dev(df, zone_station_train=None,
     poll = df.pollutant.unique()[0]
     #
     if zone_station_train is None or zone_station_dev is None:
-        # Z = get_zone_station(df)
-        # Sample one station for each zone to put in dev set
-        # other are in the train set
-        # zone_station_train = []
-        # zone_station_dev = []
-        # for k, v in Z.items():
-        #     n_station = len(v)
-        #     i = np.random.randint(n_station)
-        #     zone_station_dev.append((k, v.pop(i)))
-        #     zone_station_train.extend([(k, s) for s in v])
         zone_station_train = []
         zone_station_dev = []
         d = get_poll_zone_station(df)
         for zone, stations in d[poll].items():
             n_station = len(stations)
             i = np.random.randint(n_station)
-            print i
+            # if i < n_station:
             zone_station_dev.append((zone, stations.pop(i)))
             zone_station_train.extend([(zone, s) for s in stations])
     # filter df on block column created with split_pollutant_dataset
@@ -151,7 +141,10 @@ def split_train_dev(df, zone_station_train=None,
     dev_blocks = ["%s-%i-%i" % (poll, z, s) for z, s in zone_station_dev]
     df_train = df[df.block.apply(lambda x: x in train_blocks)]
     df_dev = df[df.block.apply(lambda x: x in dev_blocks)]
-    return df_train, df_dev
+    if info:
+        return df_train, df_dev, zone_station_train, zone_station_dev
+    else:
+        return df_train, df_dev
 
 
 def get_poll_zone_station(df):
