@@ -98,17 +98,20 @@ def add_block(df):
         df.station_id.map(lambda x: "-%s" % int(x))
 
 
-def split_pollutant_dataset(df):
+def split_pollutant_dataset(df, pm=False):
     """ """
     # add block
     if "block" not in df:
         add_block(df)
     # split according to pollutant
     NO2_df = df[df.pollutant == "NO2"]
-    PM10_df = df[df.pollutant == "PM10"]
-    PM25_df = df[df.pollutant == "PM2_5"]
-    #
-    return NO2_df, PM10_df, PM25_df
+    if pm:
+        PM_df = df[(df.pollutant == "PM10") | (df.pollutant == "PM2_5")]
+        return NO2_df, PM_df
+    else:
+        PM10_df = df[df.pollutant == "PM10"]
+        PM25_df = df[df.pollutant == "PM2_5"]
+        return NO2_df, PM10_df, PM25_df
 
 
 def split_train_dev(df, zone_station_train=None,
@@ -119,7 +122,7 @@ def split_train_dev(df, zone_station_train=None,
     make sur that the dev dataset have different station
     than the train dataset.
     """
-    np.random.seed(seed)
+    # np.random.seed(seed)
     # get the name of the pollutant
     poll = df.pollutant.unique()[0]
     #
@@ -140,6 +143,7 @@ def split_train_dev(df, zone_station_train=None,
         for zone, stations in d[poll].items():
             n_station = len(stations)
             i = np.random.randint(n_station)
+            print i
             zone_station_dev.append((zone, stations.pop(i)))
             zone_station_train.extend([(zone, s) for s in stations])
     # filter df on block column created with split_pollutant_dataset
@@ -184,6 +188,7 @@ def preprocess_dataset(df):
     # add hour of day (0-23)
     add_hours_day(df)
     add_day_of_week(df)
+    df.is_calmday = df.is_calmday.map(lambda x: 1 if x else -1)
     # add avg temporal value per zone
     # df = add_avg_temporal_per_zone(df)
     return df
