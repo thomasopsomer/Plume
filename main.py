@@ -210,7 +210,7 @@ def feature_importance(model, cols):
 
 # NN
 
-mlp = MLPRegressor(hidden_layer_sizes=(150, 50), activation='relu')
+mlp = MLPRegressor(hidden_layer_sizes=(250, 150), activation='relu')
 mlp.fit(preprocessing.normalize(X_NO2), Y_NO2)
 
 evaluate_mse(
@@ -226,9 +226,101 @@ evaluate_mse(
 
 
 
+# test features:
+import xgboost as xgb
+from features import drop_cols
+from dataset import cols
+
+
+NO2_train_f, NO2_dev_f = make_features(
+    NO2_train, NO2_dev, normalize=False,
+    rolling_mean=True, deltas_mean=[24, 48, 96, 144, 288],
+    temp_dec_freq=24)
+
+NO2_train_f = drop_cols(NO2_train_f, cols["temporal"])
+NO2_dev_f = drop_cols(NO2_dev_f, cols["temporal"])
+Y_NO2_train = get_Y(Y, NO2_train)
+Y_NO2_dev = get_Y(Y, NO2_dev)
+
+xgb_model = xgb.XGBRegressor(max_depth=6, n_estimators=200, reg_lambda=10)
+
+xgb_model.fit(NO2_train_f, Y_NO2_train,
+              eval_set=[(NO2_dev_f, Y_NO2_dev)],
+              eval_metric="rmse")
+
+evaluate_mse(xgb_model, NO2_train_f, NO2_dev_f,
+             Y_NO2_train, Y_NO2_dev)
+
+
+import matplotlib.pyplot as plt
+xgb.plot_importance(xgb_model)
+plt.show()
 
 
 
+from sklearn.feature_selection import SelectFromModel
+from sklearn.model_selection import train_test_split
 
 
+def shuffle_XY(X, Y):
+    """ """
+    tmp = pd.concat([X,Y], axis=1).sample(frac=1)
+    return tmp[X.columns], tmp[Y.columns]
+
+
+Y_NO2 = get_Y(Y, NO2_df)
+#NO2_train, NO2_dev, Y_NO2_train, Y_NO2_dev = train_test_split(NO2_df, Y_NO2)
+
+NO2_train_f, NO2_dev_f = make_features(
+    NO2_train, NO2_dev, normalize=False,
+    rolling_mean=True, deltas_mean=[6, 48, 96, 120, 192],
+    rolling_std=True, deltas_std=[24, 48, 96, 120],
+    temp_dec_freq=12, log=False)
+
+NO2_train_f = drop_cols(NO2_train_f, cols["temporal"])
+NO2_dev_f = drop_cols(NO2_dev_f, cols["temporal"])
+Y_NO2_train = get_Y(Y, NO2_train)
+Y_NO2_dev = get_Y(Y, NO2_dev)
+
+NO2_train_f, Y_NO2_train = shuffle_XY(NO2_train_f, Y_NO2_train)
+NO2_dev_f, Y_NO2_dev = shuffle_XY(NO2_dev_f, Y_NO2_dev)
+
+xgb_model = xgb.XGBRegressor(max_depth=9, n_estimators=100, reg_lambda=1)
+
+xgb_model.fit(NO2_train_f, Y_NO2_train,
+              eval_set=[(NO2_dev_f, Y_NO2_dev)],
+              eval_metric="rmse")
+
+
+PM25_train_f, PM25_dev_f = make_features(
+    PM25_train, PM25_dev, normalize=False,
+    rolling_mean=True, deltas_mean=[6, 48, 96, 120, 192],
+    rolling_std=True, deltas_std=[24, 48, 96, 120],
+    temp_dec_freq=48, log=False)
+PM25_train_f = drop_cols(PM25_train_f, cols["temporal"])
+PM25_dev_f = drop_cols(PM25_dev_f, cols["temporal"])
+Y_PM25_train = get_Y(Y, PM25_train)
+Y_PM25_dev = get_Y(Y, PM25_dev)
+
+xgb_model = xgb.XGBRegressor(max_depth=6, n_estimators=300, reg_lambda=1)
+
+xgb_model.fit(PM25_train_f, Y_PM25_train,
+              eval_set=[(PM25_dev_f, Y_PM25_dev)],
+              eval_metric="rmse")
+evaluate_mse(xgb_model, PM25_train_f, PM25_dev_f,
+             Y_PM25_train, Y_PM25_dev)
+
+# Set a minimum threshold of 0.25
+selection = SelectFromModel(xgb_model, threshold=0.01, prefit=True)
+select_X_train = selection.transform(NO2_train_f)
+select_X_dev = selection.transform(NO2_dev_f)
+
+xgb_model_as = xgb.XGBRegressor(max_depth=6, n_estimators=200, reg_lambda=10)
+
+xgb_model_as.fit(select_X_train, Y_NO2_train,
+                 eval_set=[(select_X_dev, Y_NO2_dev)],
+                 eval_metric="rmse")
+
+evaluate_mse(xgb_model_as, select_X_train, select_X_dev,
+             Y_NO2_train, Y_NO2_dev)
 

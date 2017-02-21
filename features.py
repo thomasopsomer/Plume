@@ -38,10 +38,13 @@ import datetime
 daytime_0 = 72.0
 
 
-def fillna_static(df):
+def fillna_static(df, log=False):
     """ """
     for col in cols["static"]:
-        df[col] = df[col].fillna(0)
+        if log:
+            df[col] = np.log(df.col.fillna(1.0))
+        else:
+            df[col] = df[col].fillna(0)
 
 
 def scale_temporal(train, features_train, dev=None, features_dev=None):
@@ -61,12 +64,12 @@ def scale_temporal(train, features_train, dev=None, features_dev=None):
     return features_train, features_dev
 
 
-def scale_static(train, features_train, dev=None, features_dev=None):
+def scale_static(train, features_train, dev=None, features_dev=None, log=False):
     """ """
     # fill static NaN with 0
-    fillna_static(train)
+    fillna_static(train, log)
     if dev is not None:
-        fillna_static(dev)
+        fillna_static(dev, log)
     # scale data with MaxAbsScaler to handle sparse static data
     max_abs_scaler = preprocessing.MaxAbsScaler()
     tmp = pd.DataFrame(
@@ -122,45 +125,63 @@ def delta_temporal_station_zone(train, features_train, dev=None,
 
 
 def add_temporal_rolling_mean(delta, train, features_train,
-                              dev=None, features_dev=None):
+                              dev=None, features_dev=None,
+                              columns=None):
     """ """
+    if columns is None:
+        columns = cols["temporal"]
     # compute rolling mean of step delta
-    rol_df = train.groupby("block")[cols["temporal"]] \
+    rol_df = train.groupby("block")[columns] \
         .rolling(delta, min_periods=0).mean() \
         .reset_index(0, drop=True) \
         .sort_index()
     rol_df.rename(
         columns=dict((col, "%s_mean_%i" % (col, delta))
-                     for col in cols["temporal"]),
+                     for col in columns),
         inplace=True)
     features_train = features_train.merge(
         rol_df, left_index=True, right_index=True, copy=False)
     if dev is not None:
-        rol_df = dev.groupby("block")[cols["temporal"]] \
+        rol_df = dev.groupby("block")[columns] \
             .rolling(delta, min_periods=0).mean() \
             .reset_index(0, drop=True) \
             .sort_index()
         rol_df.rename(
             columns=dict((col, "%s_mean_%i" % (col, delta))
-                         for col in cols["temporal"]),
+                         for col in columns),
             inplace=True)
         features_dev = features_dev.merge(
             rol_df, left_index=True, right_index=True,
             suffixes=("", "_mean_%i" % delta))
     # scale it
-    scaler = preprocessing.RobustScaler()
-    features_train[
-        ["%s_mean_%i" % (col, delta) for col in cols["temporal"]]
-    ] = scaler.fit_transform(
-        features_train[["%s_mean_%i" % (col, delta)
-                        for col in cols["temporal"]]])
-    if dev is not None:
-        features_dev[
-            ["%s_mean_%i" % (col, delta) for col in cols["temporal"]]
-        ] = scaler.transform(
-            features_dev[["%s_mean_%i" % (col, delta)
-                          for col in cols["temporal"]]])
+    # scaler = preprocessing.RobustScaler()
+    # features_train[
+    #     ["%s_mean_%i" % (col, delta) for col in cols["temporal"]]
+    # ] = scaler.fit_transform(
+    #     features_train[["%s_mean_%i" % (col, delta)
+    #                     for col in cols["temporal"]]])
+    # if dev is not None:
+    #     features_dev[
+    #         ["%s_mean_%i" % (col, delta) for col in cols["temporal"]]
+    #     ] = scaler.transform(
+    #         features_dev[["%s_mean_%i" % (col, delta)
+    #                       for col in cols["temporal"]]])
     return features_train, features_dev
+
+
+def rolling_mean_col(df, delta, cols):
+    """ """
+    if isinstance(cols, basestring):
+        cols = [cols]
+    # compute rolling mean of step delta
+    rol_df = df.groupby("block")[cols] \
+        .rolling(delta, min_periods=0).mean() \
+        .reset_index(0, drop=True) \
+        .sort_index()
+    rol_df.rename(
+        columns=dict((col, "%s_mean_%i" % (col, delta)) for col in cols),
+        inplace=True)
+    return rol_df
 
 
 def add_temporal_rolling_std(delta, train, features_train,
@@ -207,45 +228,44 @@ def add_temporal_rolling_std(delta, train, features_train,
     return features_train, features_dev
 
 
-def add_temporal_shift(delays, features_train, features_dev=None):
+def add_temporal_shift(config, features_train, features_dev=None):
     """ """
-    for time in delays:
-        for col in cols["temporal"]:
-            features_train["%s_shift_%i" % (col, time)] = \
-                features_train[col].shift(time) \
-                .fillna(method="bfill")
-    if features_dev is not None:
-        for time in delays:
-            for col in cols["temporal"]:
-                features_dev["%s_shift_%i" % (col, time)] = \
-                    features_dev[col].shift(time) \
-                    .fillna(method="bfill")
+    for col, delays in config.items():
+        for delay in delays:
+            features_train["%s_shift_%i" % (col, delay)] = \
+                features_train[col].shift(delay).fillna(method="bfill")
+            if features_dev is not None:
+                features_dev["%s_shift_%i" % (col, delay)] = \
+                    features_dev[col].shift(delay).fillna(method="bfill")
+    #
     return features_train, features_dev
 
 
 def add_temporal_decomposition(freq, train, features_train, dev=None,
-                               features_dev=None):
+                               features_dev=None, scale=False):
     """ """
     temporal_train_dec = decompose_temporal(freq, train)
     # scale it
-    scaler = preprocessing.StandardScaler()
-    temporal_train_dec[temporal_train_dec.columns] = \
-        scaler.fit_transform(temporal_train_dec)
+    if scale:
+        scaler = preprocessing.StandardScaler(with_mean=True)
+        temporal_train_dec[temporal_train_dec.columns] = \
+            scaler.fit_transform(temporal_train_dec)
     # merge
     features_train = features_train.merge(
         temporal_train_dec, left_index=True, right_index=True)
     if dev is not None:
         temporal_dev_dec = decompose_temporal(freq, dev)
         # scale it
-        temporal_dev_dec[temporal_dev_dec.columns] = \
-            scaler.transform(temporal_dev_dec)
+        if scale:
+            temporal_dev_dec[temporal_dev_dec.columns] = \
+                scaler.transform(temporal_dev_dec)
         # merge
         features_dev = features_dev.merge(
             temporal_dev_dec, left_index=True, right_index=True)
     return features_train, features_dev
 
 
-def decompose_temporal(freq, train):
+def decompose_temporal(freq, train, log=True):
     """ """
     import statsmodels.api as sm
     hour = datetime.timedelta(hours=1)
@@ -285,6 +305,14 @@ def concat_decomposition(dec):
     return res
 
 
+def to_log(df):
+    """ """
+    res = df.copy()
+    for col in ["temperature", "pressure"]:
+        res[col] = np.log(273.0 + df[col])
+    return res
+
+
 def hours_day(df):
     """ """
     return df.daytime.map(lambda x: (x - daytime_0) % 24)
@@ -307,15 +335,13 @@ def drop_cols(df, cols):
     return df[[col for col in df.columns if col not in cols]]
 
 
-def make_features(train, dev=None, normalize=False,
-                  delta_temporal=False,
-                  rolling_mean=True, deltas_mean=[],
+def make_features(train, dev=None, scale_temp=True,
+                  rolling_mean=True, deltas_mean=[], roll_mean_conf={},
                   rolling_std=True, deltas_std=[],
-                  shift=False, delays=[],
-                  temp_dec_freq=0,
-                  binary_staic=False,
+                  shift_config={}, temp_dec_freq=0,
+                  binary_static=False,
                   pollutant=False,
-                  remove_temporal=False):
+                  remove_temporal=False, log=False):
     """ """
     general_col = ["zone_id", "is_calmday", "daytime"]
     f_train = train[general_col]
@@ -335,30 +361,41 @@ def make_features(train, dev=None, normalize=False,
         f_dev["day_of_week"] = day_of_week(dev)
     else:
         f_dev = None
+    # to log for temperature and pressure
+    if log:
+        train = to_log(train)
+        if dev is not None:
+            dev = to_log(dev)
     # scale temporal features with robust scaling
-    f_train, f_dev = scale_temporal(train, f_train, dev, f_dev)
+    if scale_temp:
+        f_train, f_dev = scale_temporal(train, f_train, dev, f_dev)
+    else:
+        f_train[cols["temporal"]] = train[cols["temporal"]]
+        if dev is not None:
+            f_dev[cols["temporal"]] = dev[cols["temporal"]]
     # scale data with MaxAbsScaler to handle sparse static data
-    f_train, f_dev = scale_static(train, f_train, dev, f_dev)
+    f_train, f_dev = scale_static(train, f_train, dev, f_dev, log=log)
     # binary static features
-    if binary_staic:
+    if binary_static:
         f_train, f_dev = binarize_static(train, f_train, dev, f_dev)
-    # add diff for temporal data between station value and zone avg
-    if delta_temporal:
-        f_train, f_dev = delta_temporal_station_zone(
-            train, f_train, dev, f_dev)
     # Rolling mean of step delta
     if rolling_mean:
-        for delta in deltas_mean:
-            f_train, f_dev = add_temporal_rolling_mean(
-                delta, train, f_train, dev, f_dev)
+        if roll_mean_conf:
+            for delta, columns in roll_mean_conf.items():
+                f_train, f_dev = add_temporal_rolling_mean(
+                    delta, train, f_train, dev, f_dev, columns)
+        else:
+            for delta in deltas_mean:
+                f_train, f_dev = add_temporal_rolling_mean(
+                    delta, train, f_train, dev, f_dev)
     # Rolling Std of step deltas_std
     if rolling_std:
         for delta in deltas_std:
             f_train, f_dev = add_temporal_rolling_std(
                 delta, train, f_train, dev, f_dev)
     # temporal shift
-    if shift:
-        f_train, f_dev = add_temporal_shift(delays, f_train, f_dev)
+    if shift_config:
+        f_train, f_dev = add_temporal_shift(shift_config, f_train, f_dev)
     # temporal decomposition
     if temp_dec_freq:
         f_train, f_dev = add_temporal_decomposition(
@@ -373,11 +410,6 @@ def make_features(train, dev=None, normalize=False,
     if dev is not None:
         if "daytime" in f_dev:
             f_dev.drop("daytime", axis=1, inplace=True)
-    # l2 normalize
-    if normalize:
-        f_train = normalize_df(f_train)
-        if dev is not None:
-            f_dev = normalize_df(f_dev)
     #
     if dev is not None:
         return f_train, f_dev
@@ -411,32 +443,21 @@ def build_sequences(df, seq_length, pad=False, pad_value=0., norm=True):
 
 
 def make_seqential_features(train, dev=None, seq_length=12, normalize=False,
-                            temp_dec_freq=0):
+                            temp_dec_freq=0, pollutant=False,
+                            remove_temporal=False, log=False):
     """ """
-    columns = ["daytime", "zone_id", "is_calmday", "block"]
-    f_train = train[columns]
-    # hour of day & day of week
-    f_train["hour_of_day"] = hours_day(train)
-    f_train["day_of_week"] = day_of_week(train)
-    if dev is not None:
-        f_dev = dev[columns]
-        # hour of day & day of week
-        f_dev["hour_of_day"] = hours_day(dev)
-        f_dev["day_of_week"] = day_of_week(dev)
-    else:
-        f_dev = None
-    # scale temporal features with robust scaling
-    f_train, f_dev = scale_temporal(train, f_train, dev, f_dev)
-    # scale data with MaxAbsScaler to handle sparse static data
-    f_train, f_dev = scale_static(train, f_train, dev, f_dev)
-    # temporal decomposition
-    if temp_dec_freq:
-        f_train, f_dev = add_temporal_decomposition(
-            temp_dec_freq, train, f_train, dev, f_dev)
+    # make standard features
+    f_train, f_dev = make_features(train, dev=dev, scale_temporal=True,
+                                   temp_dec_freq=temp_dec_freq,
+                                   pollutant=pollutant,
+                                   remove_temporal=remove_temporal, log=log)
     # sequantialize
+    # add block column
+    f_train["block"] = train["block"]
     train_seqs, train_ids = build_sequences(f_train, seq_length=seq_length,
                                             pad=True, norm=normalize)
     if dev is not None:
+        f_dev["block"] = dev["block"]
         dev_seqs, dev_ids = build_sequences(f_dev, seq_length=seq_length,
                                             pad=True, norm=normalize)
     # return
@@ -447,35 +468,35 @@ def make_seqential_features(train, dev=None, seq_length=12, normalize=False,
 
 
 def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
-                         temp_dec_freq=0):
+                         temp_dec_freq=0, pollutant=False,
+                         remove_temporal=False, log=False):
     """ """
     columns = ["daytime", "zone_id", "hour_of_day", "day_of_week",
                "is_calmday", "block"]
-    f_train = train[columns]
-    if dev is not None:
-        f_dev = dev[columns]
-    else:
-        f_dev = None
-    # scale temporal features with robust scaling
-    f_train, f_dev = scale_temporal(train, f_train, dev, f_dev)
-    # scale data with MaxAbsScaler to handle sparse static data
-    f_train, f_dev = scale_static(train, f_train, dev, f_dev)
-    # temporal decomposition
     if temp_dec_freq:
-        f_train, f_dev = add_temporal_decomposition(
-            temp_dec_freq, train, f_train, dev, f_dev)
+        remove_temporal = True
+    # make standard features
+    f_train, f_dev = make_features(train, dev=dev, scale_temporal=True,
+                                   temp_dec_freq=temp_dec_freq,
+                                   pollutant=pollutant,
+                                   remove_temporal=remove_temporal, log=log)
 
+    # add block column
+    f_train["block"] = train["block"]
     # temporal features: sequential
     temp_cols = [col for col in cols["temporal"]]
     f_temp_train = f_train[columns + temp_cols].drop("zone_id", axis=1)
-    train_temp_seqs, train_ids = build_sequences(f_temp_train, seq_length=seq_length,
-                                                 pad=True, norm=normalize)
+    train_temp_seqs, train_ids = build_sequences(
+        f_temp_train, seq_length=seq_length, pad=True, norm=normalize)
     if dev is not None:
+        f_dev["block"] = dev["block"]
         f_temp_dev = f_dev[columns + temp_cols].drop("zone_id", axis=1)
-        dev_temp_seqs, dev_ids = build_sequences(f_temp_dev, seq_length=seq_length,
-                                                 pad=True, norm=normalize)
+        dev_temp_seqs, dev_ids = build_sequences(
+            f_temp_dev, seq_length=seq_length, pad=True, norm=normalize)
     # static features
     static_cols = ["%s_sc" % col for col in cols["static"]] + ["zone_id"]
+    # add wind sin and cosin
+    static_cols.extend("windbearingcos", "windbearingsin")
     train_static_ds = np.empty(shape=[0, len(static_cols)])
     gb = f_train.groupby("block")
     for k, group in gb:

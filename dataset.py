@@ -184,6 +184,7 @@ def preprocess_dataset(df):
     # add hour of day (0-23)
     add_hours_day(df)
     add_day_of_week(df)
+    df.is_calmday = df.is_calmday.map(lambda x: 1 if x else -1)
     # add avg temporal value per zone
     # df = add_avg_temporal_per_zone(df)
     return df
