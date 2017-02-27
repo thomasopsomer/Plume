@@ -488,23 +488,28 @@ def make_seqential_features(train, dev, seq_length=12, normalize=False,
 
 def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
                          temp_dec_freq=0, pollutant=False,
-                         remove_temporal=False, log=False):
+                         remove_temporal=False, log=False,
+                         add_wind_static=False):
     """ """
     columns = ["daytime", "zone_id", "hour_of_day", "day_of_week",
                "is_calmday", "block"]
-    if temp_dec_freq:
-        remove_temporal = True
+    #if temp_dec_freq:
+    #    remove_temporal = True
     # make standard features
-    f_train, f_dev = make_features(train, dev=dev, scale_temporal=True,
-                                   temp_dec_freq=temp_dec_freq,
-                                   pollutant=pollutant,
+    f_train, f_dev = make_features(train, dev=dev, temp_dec_freq=temp_dec_freq,
+                                   pollutant=pollutant, scale_dec=True,
                                    remove_temporal=remove_temporal, log=log)
 
     # add block column
     f_train["block"] = train["block"]
     f_train["daytime"] = train["daytime"]
     # temporal features: sequential
-    temp_cols = [col for col in cols["temporal"]]
+    if remove_temporal:
+        temp_cols = temporal_dec_columns
+    elif temp_dec_freq:
+        temp_cols = temporal_dec_columns.extend(cols["temporal"])
+    else:
+        temp_cols = [col for col in cols["temporal"]]
     f_temp_train = f_train[columns + temp_cols].drop("zone_id", axis=1)
     train_temp_seqs, train_ids = build_sequences(
         f_temp_train, seq_length=seq_length, pad=True, norm=normalize)
@@ -514,10 +519,17 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
         f_temp_dev = f_dev[columns + temp_cols].drop("zone_id", axis=1)
         dev_temp_seqs, dev_ids = build_sequences(
             f_temp_dev, seq_length=seq_length, pad=True, norm=normalize)
-    # static features
-    static_cols = ["%s_sc" % col for col in cols["static"]] + ["zone_id"]
-    # add wind sin and cosin
-    static_cols.extend("windbearingcos", "windbearingsin")
+    # static features + add wind sin and cosin
+    if add_wind_static:
+        if temp_dec_freq:
+            wind_col = ["windbearingcos_trend", "windbearingsin_trend"]
+        else:
+            wind_col = ["windbearingcos_trend", "windbearingsin_trend"]
+    else:
+        wind_col = []
+    poll_col = ["pollutant"] if pollutant else []
+    static_cols = ["%s_sc" % col for col in cols["static"]] + ["zone_id"] + wind_col + poll_col
+    #
     train_static_ds = np.empty(shape=[0, len(static_cols)])
     gb = f_train.groupby("block")
     for k, group in gb:
@@ -536,9 +548,9 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
             dev_static_ds = preprocessing.normalize(dev_static_ds)
     # return
     if dev is not None:
-        return [train_temp_seqs, train_static_ds, train_ids], [dev_temp_seqs, dev_static_ds, dev_ids]
+        return train_temp_seqs, train_static_ds, train_ids, dev_temp_seqs, dev_static_ds, dev_ids
     else:
-        return [train_temp_seqs, train_static_ds, train_ids]
+        return train_temp_seqs, train_static_ds, train_ids
 
 
 def get_seq_Y(X, Y, pollutant=None):
