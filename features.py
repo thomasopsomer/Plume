@@ -245,12 +245,39 @@ def add_temporal_shift(config, features_train, features_dev=None):
     return features_train, features_dev
 
 
+def add_diff(delta, features_train, features_dev=None):
+    """ """
+    for col in cols["temporal"]:
+        features_train["%s_diff_%i" % (col, delta)] = \
+                features_train[col] - features_train[col].shift(delta).fillna(method="bfill")
+        if features_dev is not None:
+            features_dev["%s_diff_%i" % (col, delta)] = \
+                features_dev[col] - features_dev[col].shift(delta).fillna(method="bfill")
+    #
+    return features_train, features_dev
+
+
+def add_mean_y_zone(Y, train, features_train, dev=None, features_dev=None):
+    """ """
+    Y_u = Y.merge(train[["zone_id", "daytime"]], left_index=True, right_index=True)
+    avg_c = Y_u.groupby(["zone_id", "daytime"]).mean()
+    # add it to feature train    
+    features_train = features_train.merge(
+        avg_c, left_on=["zone_id", "daytime"], right_index=True, how="left")
+    # on dev also
+    if dev is not None:
+        features_dev = features_dev.merge(
+            avg_c, left_on=["zone_id", "daytime"], right_index=True, how="left")
+    #
+    return features_train, features_dev
+
+
 def add_temporal_decomposition(freq, train, features_train, dev=None,
-                               features_dev=None, scale=False):
+                               features_dev=None, scale=False, resid=True):
     """ """
     #
     if not all([col in train for col in temporal_dec_columns]):
-        temporal_train_dec = decompose_temporal(freq, train)
+        temporal_train_dec = decompose_temporal(freq, train, resid)
     else:
         temporal_train_dec = train[temporal_dec_columns]
     # scale it
@@ -264,7 +291,7 @@ def add_temporal_decomposition(freq, train, features_train, dev=None,
     #
     if dev is not None:
         if not all([col in dev for col in temporal_dec_columns]):
-            temporal_dev_dec = decompose_temporal(freq, dev)
+            temporal_dev_dec = decompose_temporal(freq, dev, resid)
         else:
             temporal_dev_dec = dev[temporal_dec_columns]
         # scale it
@@ -277,7 +304,7 @@ def add_temporal_decomposition(freq, train, features_train, dev=None,
     return features_train, features_dev
 
 
-def decompose_temporal(freq, train, log=True):
+def decompose_temporal(freq, train, resid=True):
     """ """
     import statsmodels.api as sm
     hour = datetime.timedelta(hours=1)
@@ -290,7 +317,7 @@ def decompose_temporal(freq, train, log=True):
         acc = g[["daytime"]]
         for col in cols["temporal"]:
             dec = sm.tsa.seasonal_decompose(tmp[[col]], freq=freq)
-            res = concat_decomposition(dec)
+            res = concat_decomposition(dec, resid)
             res = res.fillna(0.)
             acc = acc.merge(res, left_index=False, right_index=True,
                             left_on="daytime")
@@ -298,7 +325,7 @@ def decompose_temporal(freq, train, log=True):
     return pd.concat(decompose, axis=0).drop("daytime", axis=1).sort_index()
 
 
-def concat_decomposition(dec):
+def concat_decomposition(dec, resid=True):
     """ """
     to_merge = [
         dec.seasonal.rename(
@@ -306,11 +333,14 @@ def concat_decomposition(dec):
             columns={dec.seasonal.columns[0]: "%s_seasonal" % dec.seasonal.columns[0]}),
         dec.trend.rename(
             index=str,
-            columns={dec.trend.columns[0]: "%s_trend" % dec.trend.columns[0]}),
-        dec.resid.rename(
-            index=str,
-            columns={dec.resid.columns[0]: "%s_resid" % dec.resid.columns[0]}),
+            columns={dec.trend.columns[0]: "%s_trend" % dec.trend.columns[0]})
     ]
+    if resid:
+        to_merge.append(
+            dec.resid.rename(
+                index=str,
+                columns={dec.resid.columns[0]: "%s_resid" % dec.resid.columns[0]}),
+        )
     res = pd.concat(to_merge, axis=1)
     # cast index to datetime
     res = res.set_index(pd.DatetimeIndex(res.index))
@@ -356,10 +386,11 @@ def drop_cols(df, cols):
 def make_features(train, dev=None, scale_temp=True, scale_time=True,
                   rolling_mean=True, deltas_mean=[], roll_mean_conf={},
                   rolling_std=True, deltas_std=[],
-                  shift_config={}, temp_dec_freq=0, scale_dec=True,
+                  shift_config={}, temp_dec_freq=0, scale_dec=True, resid=True,
                   binary_static=False,
-                  pollutant=False,
-                  remove_temporal=False, log=False):
+                  pollutant=False, diff=0,
+                  remove_temporal=False, log=False,
+                  Y=None, mean_Y_zone=False):
     """ """
     general_col = ["zone_id", "is_calmday", "daytime"]
     f_train = train[general_col]
@@ -414,14 +445,20 @@ def make_features(train, dev=None, scale_temp=True, scale_time=True,
     # temporal shift
     if shift_config:
         f_train, f_dev = add_temporal_shift(shift_config, f_train, f_dev)
+    # add diff
+    if diff:
+        f_train, f_dev  = add_diff(diff, f_train, f_dev)
     # temporal decomposition
     if temp_dec_freq:
         f_train, f_dev = add_temporal_decomposition(
-            temp_dec_freq, train, f_train, dev, f_dev, scale=scale_dec)
+            temp_dec_freq, train, f_train, dev, f_dev, scale=scale_dec, resid=resid)
     if remove_temporal:
         f_train = drop_cols(f_train, cols["temporal"])
         if dev is not None:
             f_dev = drop_cols(f_dev, cols["temporal"])
+    # add mean Y in each zone
+    if Y is not None and mean_Y_zone:
+        f_train, f_dev = add_mean_y_zone(Y, train, f_train, dev, f_dev)
     # drop daytime col
     if "daytime" in f_train:
         f_train.drop("daytime", axis=1, inplace=True)

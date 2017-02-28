@@ -271,11 +271,45 @@ def shuffle_XY(X, Y):
 Y_NO2 = get_Y(Y, NO2_df)
 #NO2_train, NO2_dev, Y_NO2_train, Y_NO2_dev = train_test_split(NO2_df, Y_NO2)
 
+roll_mean_conf = {
+    2: ["windspeed", "cloudcover"],
+    4: ["windspeed", "cloudcover"],
+    5: ["precipintensity", "precipprobability"],
+    6: ["temperature"],
+    10: ["precipintensity"],
+    12: ["pressure", "cloudcover"],
+    18: ["windbearingcos", "windbearingsin", "temperature"],
+    24: ["pressure", "precipprobability", "windbearingcos"],
+    32: ["windbearingsin"],
+    48: ["pressure", "windbearingcos", "windbearingsin"],
+    15: ["windspeed"],
+    96: ["windbearingcos", "temperature", "windspeed"],
+    144: ["temperature", "pressure"],
+    288: ["temperature", "cloudcover"],
+}
+
+shift_config = {
+    "temperature": [8, 14, 96],
+    "cloudcover": [2, 5, 48],
+    "pressure": [2, 24, 72],
+    "windbearingsin": [2, 6],
+    "windbearingcos": [6, 6],
+    "windspeed": [2, 4]
+}
+
+# deltas_mean=[6, 48, 96, 120, 192],
+
 NO2_train_f, NO2_dev_f = make_features(
-    NO2_train, NO2_dev, normalize=False,
-    rolling_mean=True, deltas_mean=[6, 48, 96, 120, 192],
-    rolling_std=True, deltas_std=[24, 48, 96, 120],
-    temp_dec_freq=12, log=False)
+    NO2_train, NO2_dev,
+    rolling_mean=True,
+    # roll_mean_conf=roll_mean_conf,
+    deltas_mean=[6, 48, 96, 120, 192],
+    rolling_std=True, deltas_std=[6, 24, 48, 96],
+    shift_config=shift_config,
+    diff=1,
+    temp_dec_freq=12, resid=True, log=False,
+    remove_temporal=True,
+    Y=Y, mean_Y_zone=False)
 
 NO2_train_f = drop_cols(NO2_train_f, cols["temporal"])
 NO2_dev_f = drop_cols(NO2_dev_f, cols["temporal"])
@@ -285,11 +319,14 @@ Y_NO2_dev = get_Y(Y, NO2_dev)
 NO2_train_f, Y_NO2_train = shuffle_XY(NO2_train_f, Y_NO2_train)
 NO2_dev_f, Y_NO2_dev = shuffle_XY(NO2_dev_f, Y_NO2_dev)
 
-xgb_model = xgb.XGBRegressor(max_depth=9, n_estimators=100, reg_lambda=1)
+xgb_model = xgb.XGBRegressor(max_depth=7, n_estimators=300, reg_lambda=1)
 
 xgb_model.fit(NO2_train_f, Y_NO2_train,
               eval_set=[(NO2_dev_f, Y_NO2_dev)],
               eval_metric="rmse")
+
+
+
 
 
 PM25_train_f, PM25_dev_f = make_features(
