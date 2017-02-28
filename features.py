@@ -444,7 +444,7 @@ def build_sequences(df, seq_length, pad=False, pad_value=0., norm=True):
         g = g.set_index("daytime").sort_index().drop("block", axis=1)
         array = g.drop("ID", axis=1).values
         # ids.append(g.ID)
-        np.concatenate((ids, g.ID.as_matrix()), axis=0)
+        ids = np.concatenate((ids, g.ID.as_matrix()), axis=0)
         # L2 normalize
         if norm:
             array = preprocessing.normalize(array)
@@ -507,7 +507,7 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
     if remove_temporal:
         temp_cols = temporal_dec_columns
     elif temp_dec_freq:
-        temp_cols = temporal_dec_columns.extend(cols["temporal"])
+        temp_cols = temporal_dec_columns + cols["temporal"]
     else:
         temp_cols = [col for col in cols["temporal"]]
     f_temp_train = f_train[columns + temp_cols].drop("zone_id", axis=1)
@@ -524,7 +524,7 @@ def make_hybrid_features(train, dev=None, seq_length=12, normalize=False,
         if temp_dec_freq:
             wind_col = ["windbearingcos_trend", "windbearingsin_trend"]
         else:
-            wind_col = ["windbearingcos_trend", "windbearingsin_trend"]
+            wind_col = ["windbearingcos", "windbearingsin"]
     else:
         wind_col = []
     poll_col = ["pollutant"] if pollutant else []
