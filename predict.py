@@ -42,50 +42,65 @@ shift_config = {
     "windspeed": [2, 4]
 }
 
+
+NO2_train_f, NO2_dev_f = make_features(
+    NO2_train, NO2_dev,
+    rolling_mean=True, roll_mean_conf=roll_mean_conf,
+    # deltas_mean=[6, 48, 96, 120, 192],
+    rolling_std=False, deltas_std=[12, 24, 48, 96], std_pca=True, std_pca_n=0.9,
+    shift_config=shift_config,
+    #diff=2,
+    temp_dec_freq=12, resid=False, log=False,
+    remove_temporal=True,
+    cwt=True, cwt_range=np.arange(1, 11, 2), filter="morl",
+    cwt_pca=True, cwt_pca_n=0.90)
+
+
 features_config = {
     "NO2": {
-        "rolling_mean": True,
+        "rolling_mean": True, "roll_mean_conf": roll_mean_conf,
         # "deltas_mean": [6, 48, 96, 120, 192],
-        # "rolling_std": True,
-        # "deltas_std": [24, 48, 96, 120],
-        "temp_dec_freq": 12,
+        "rolling_std": True, "deltas_std": [24, 48, 96, 120],"std_pca": True, "std_pca_n": 0.9,
+        "temp_dec_freq": 12, "resid": False, "log": False,
         "pollutant": False,
-        "roll_mean_conf": roll_mean_conf,
         "shift_config": shift_config,
-        "remove_temporal": True
+        "remove_temporal": True,
+        "cwt": True, "cwt_range": np.arange(1, 11, 2), "filter": "morl",
+        "cwt_pca": True, "cwt_pca_n": 0.90
+
     },
     "PM10": {
-        "rolling_mean": True,
+        "rolling_mean": True, "roll_mean_conf": roll_mean_conf,
+        "rolling_std": True, "deltas_std": [24, 48, 96, 120],"std_pca": True, "std_pca_n": 0.9,
         # "deltas_mean": [6, 48, 96, 120, 192],
-        # "rolling_std": True,
-        # "deltas_std": [24, 48, 96],
-        "temp_dec_freq": 48,
+        "temp_dec_freq": 48, "resid": False, "log": False,
         "pollutant": True,
-        "roll_mean_conf": roll_mean_conf,
         "shift_config": shift_config,
-        "remove_temporal": True
+        "remove_temporal": True,
+        "cwt": True, "cwt_range": np.arange(1, 11, 2), "filter": "morl",
+        "cwt_pca": True, "cwt_pca_n": 0.90
     },
     "PM25": {
-        "rolling_mean": True,
+        "rolling_mean": True, "roll_mean_conf": roll_mean_conf,
+        "rolling_std": True, "deltas_std": [24, 48, 96, 120],"std_pca": True, "std_pca_n": 0.9,
         # "deltas_mean": [6, 48, 96, 120, 192],
-        # "rolling_std": True,
-        # "deltas_std": [24, 48, 96],
-        "temp_dec_freq": 48,
+        "temp_dec_freq": 48, "resid": False, "log": False,
         "pollutant": True,
-        "roll_mean_conf": roll_mean_conf,
         "shift_config": shift_config,
-        "remove_temporal": True
+        "remove_temporal": True,
+        "cwt": True, "cwt_range": np.arange(1, 11, 2), "filter": "morl",
+        "cwt_pca": True, "cwt_pca_n": 0.90
     },
     "PM": {
-        "rolling_mean": True,
+        "rolling_mean": True, "roll_mean_conf": roll_mean_conf,
+        "rolling_std": True, "deltas_std": [24, 48, 96, 120],"std_pca": True, "std_pca_n": 0.9,
         # "deltas_mean": [6, 48, 96, 120, 192],
-        # "rolling_std": True,
-        # "deltas_std": [24, 48, 96],
-        "temp_dec_freq": 48,
+        "temp_dec_freq": 48, "resid": False, "log": False,
         "pollutant": True,
-        "roll_mean_conf": roll_mean_conf,
         "shift_config": shift_config,
-        "remove_temporal": True
+        "remove_temporal": True,
+        "cwt": True, "cwt_range": np.arange(1, 11, 2), "filter": "morl",
+        "cwt_pca": True, "cwt_pca_n": 0.90
     },
 
 }
@@ -103,16 +118,22 @@ rf_config = {
 
 xgb_config = {
     "NO2": {
-        "n_estimators": 300,
-        "reg_lambda": 1
+        "n_estimators": 350,
+        "reg_lambda": 1,
+        "min_child_weight": 5,
+        "max_depth": 7, 
     },
     "PM10": {
         "n_estimators": 300,
-        "reg_lambda": 1
+        "reg_lambda": 1,
+        "min_child_weight": 5,
+        "max_depth": 7,
     },
     "PM25": {
-        "n_estimators": 250,
-        "reg_lambda": 1
+        "n_estimators": 200,
+        "reg_lambda": 1,
+        "min_child_weight": 5,
+        "max_depth": 7,
     }
 }
 
@@ -169,7 +190,7 @@ def predict(model_dict, dataset):
 
 
 def train_predict(train, test, Y_train, model_dict=None, output_path=None,
-                  pm=False, model="rf"):
+                  pm=False, model="xgb"):
     """ """
     pollutants = ["NO2", "PM"] if pm else ["NO2", "PM10", "PM25"]
     print("%i regressor will be trained for each pollutant of %s" %
@@ -197,7 +218,7 @@ def train_predict(train, test, Y_train, model_dict=None, output_path=None,
             if model == "rf":
                 reg = RandomForestRegressor(**rf_config)
             else:
-                reg = xgb.XGBRegressor(max_depth=6, **xgb_config[poll])
+                reg = xgb.XGBRegressor(**xgb_config[poll])
             # train model
             print("Training a %s model on pollutant %s ..." % (model, poll))
             reg.fit(X, Y)
@@ -257,9 +278,9 @@ if __name__ == '__main__':
     # # predict
     # Y_pred = predict(model_dict, X_test)
     y_pred = train_predict(X_train, X_test, Y_train,
-                           output_path="model/model_dict_rf.pkl",
-                           pm=True)
-    y_pred.to_csv("pred_rf.csv")
+                           output_path="model/model_dict_all.pkl",
+                           pm=False)
+    y_pred.to_csv("pred_cwt.csv")
 
     # with open("model/model_dict_3.pkl", "rb") as f:
     #     model_dict = pickle.load(f)
