@@ -61,13 +61,28 @@ def my_split_fold(X, Y, k=3, features_config={}, info=False):
         # split data set in train dev
         train, dev, train_info, dev_info = split_train_dev(X, info=True)
         if info:
-            print "train: %i samples in zone - station %s: " % (train.shape[0], train_info)
-            print "dev: %i samples in zone - station %s: " % (dev.shape[0], dev_info)
+            print("train: %i samples in zone - station %s: "
+                  % (train.shape[0], train_info))
+            print("dev: %i samples in zone - station %s: "
+                  % (dev.shape[0], dev_info))
         # build features for train and dev set
         f_train, f_dev = make_features(train, dev, **features_config)
         # get corresponding labels
         y_train = get_Y(Y, f_train)
         y_dev = get_Y(Y, f_dev)
-        yield f_train, f_dev, y_train, y_dev
+        yield f_train, f_dev, y_train, y_dev, (train_info, dev_info)
+
+
+def random_split_fold(X, k=3):
+    """
+    Split dataset on train dev, choising random station
+    to put in the dev set
+    Then make the features and yield tuples of (train, dev)
+    features as many times as k.
+    """
+    for i in range(k):
+        # split data set in train dev
+        train, dev, train_info, dev_info = split_train_dev(X, info=True)
+        yield train, dev, train_info, dev_info
 
 

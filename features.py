@@ -30,9 +30,11 @@ features:
 """
 import pandas as pd
 from sklearn import preprocessing
+from sklearn.decomposition import PCA
 from dataset import cols
 import numpy as np
 import datetime
+import pywt
 
 # deal with warning message
 pd.options.mode.chained_assignment = None
@@ -188,23 +190,14 @@ def rolling_mean_col(df, delta, cols):
     return rol_df
 
 
-def add_temporal_rolling_std(delta, train, features_train,
-                             dev=None, features_dev=None):
+def add_temporal_rolling_std(deltas, train, features_train,
+                             dev=None, features_dev=None, pca=False,
+                             pca_n=0.8):
     """ """
-    # compute rolling mean of step delta
-    rol_df = train.groupby("block")[cols["temporal"]] \
-        .rolling(delta, min_periods=0).std() \
-        .fillna(method="bfill") \
-        .reset_index(0, drop=True) \
-        .sort_index()
-    rol_df.rename(
-        columns=dict((col, "%s_std_%i" % (col, delta))
-                     for col in cols["temporal"]),
-        inplace=True)
-    features_train = features_train.merge(
-        rol_df, left_index=True, right_index=True, copy=False)
-    if dev is not None:
-        rol_df = dev.groupby("block")[cols["temporal"]] \
+    rols = []
+    for delta in deltas:
+        # compute rolling mean of step delta
+        rol_df = train.groupby("block")[cols["temporal"]] \
             .rolling(delta, min_periods=0).std() \
             .fillna(method="bfill") \
             .reset_index(0, drop=True) \
@@ -213,9 +206,38 @@ def add_temporal_rolling_std(delta, train, features_train,
             columns=dict((col, "%s_std_%i" % (col, delta))
                          for col in cols["temporal"]),
             inplace=True)
+        rols.append(rol_df)
+    rols = pd.concat(rols, axis=1)
+    if pca:
+        pca = PCA(n_components=pca_n)
+        rols_red = pca.fit_transform(rols)
+        columns = ["rol_std_pca_%i" % k for k in xrange(pca.n_components_)]
+        rols = pd.DataFrame(
+            rols_red, columns=columns, index=rols.index)
+    features_train = features_train.merge(
+        rols, left_index=True, right_index=True, copy=False)
+
+    if dev is not None:
+        rols = []
+        for delta in deltas:
+            rol_df = dev.groupby("block")[cols["temporal"]] \
+                .rolling(delta, min_periods=0).std() \
+                .fillna(method="bfill") \
+                .reset_index(0, drop=True) \
+                .sort_index()
+            rol_df.rename(
+                columns=dict((col, "%s_std_%i" % (col, delta))
+                             for col in cols["temporal"]),
+                inplace=True)
+            rols.append(rol_df)
+        rols = pd.concat(rols, axis=1)
+        if pca:
+            rols_red = pca.transform(rols)
+            columns = ["rol_std_pca_%i" % k for k in xrange(pca.n_components_)]
+            rols = pd.DataFrame(
+                rols_red, columns=columns, index=rols.index)
         features_dev = features_dev.merge(
-            rol_df, left_index=True, right_index=True,
-            suffixes=("", "_std_%i" % delta))
+            rols, left_index=True, right_index=True)
     # scale it
     # scaler = preprocessing.RobustScaler()
     # features_train[
@@ -347,6 +369,53 @@ def concat_decomposition(dec, resid=True):
     return res
 
 
+def add_wavelet_coef(range, train, f_train, dev=None, f_dev=None, filter="gaus1",
+                     scale=False, pca=False, n_components=0.75):
+    """ """
+    wavelets = compute_wavelet_coef(range, train, filter)
+    if scale:
+        scaler = preprocessing.StandardScaler()
+        wavelets = pd.DataFrame(
+            scaler.fit_transform(wavelets), columns=wavelets.columns,
+            index=wavelets.index)
+    if pca:
+        pca = PCA(n_components=n_components)
+        wavelets_red = pca.fit_transform(wavelets)
+        columns = ["cwt_pca_%i" % k for k in xrange(pca.n_components_)]
+        wavelets = pd.DataFrame(
+            wavelets_red, columns=columns, index=wavelets.index)
+    f_train = f_train.merge(wavelets, left_index=True, right_index=True)
+    if dev is not None:
+        wavelets = compute_wavelet_coef(range, dev, filter)
+        if scale:
+            wavelets = pd.DataFrame(
+                scaler.transform(wavelets), columns=wavelets.columns,
+                index=wavelets.index)
+        if pca:
+            columns = ["cwt_pca_%i" % k for k in xrange(pca.n_components_)]
+            wavelets = pd.DataFrame(
+                pca.transform(wavelets), columns=columns, index=wavelets.index)
+        f_dev = f_dev.merge(wavelets, left_index=True, right_index=True)
+    return f_train, f_dev
+
+
+def compute_wavelet_coef(range, train, filter="gaus1"):
+    """ """
+    gb = train.groupby("block")
+    wavelets_gps = []
+    for k, g in gb:
+        wavelet_col = [] 
+        for col in cols["temporal"]:
+            coefs, freqs=pywt.cwt(g[col],range, filter)
+            columns = ["%s_cwt_%i" % (col, k) for k in range]
+            wavelet_col.append(pd.DataFrame(coefs.T, columns=columns, index=g.index))
+        #
+        wavelet_col = pd.concat(wavelet_col, axis=1).sort_index()
+        wavelets_gps.append(wavelet_col)
+    wavelets = pd.concat(wavelets_gps, axis=0)
+    return wavelets
+
+
 def to_log(df):
     """ """
     res = df.copy()
@@ -385,12 +454,14 @@ def drop_cols(df, cols):
 
 def make_features(train, dev=None, scale_temp=True, scale_time=True,
                   rolling_mean=True, deltas_mean=[], roll_mean_conf={},
-                  rolling_std=True, deltas_std=[],
+                  rolling_std=True, deltas_std=[], std_pca=False, std_pca_n=0.8,
                   shift_config={}, temp_dec_freq=0, scale_dec=True, resid=True,
                   binary_static=False,
                   pollutant=False, diff=0,
                   remove_temporal=False, log=False,
-                  Y=None, mean_Y_zone=False):
+                  Y=None, mean_Y_zone=False,
+                  cwt=False, cwt_range=np.arange(0), filter="gaus1",
+                  cwt_scale=False, cwt_pca=False, cwt_pca_n=0.8):
     """ """
     general_col = ["zone_id", "is_calmday", "daytime"]
     f_train = train[general_col]
@@ -439,15 +510,20 @@ def make_features(train, dev=None, scale_temp=True, scale_time=True,
                     delta, train, f_train, dev, f_dev)
     # Rolling Std of step deltas_std
     if rolling_std:
-        for delta in deltas_std:
-            f_train, f_dev = add_temporal_rolling_std(
-                delta, train, f_train, dev, f_dev)
+        f_train, f_dev = add_temporal_rolling_std(
+                deltas_std, train, f_train, dev, f_dev,
+                pca=std_pca, pca_n=std_pca_n)
     # temporal shift
     if shift_config:
         f_train, f_dev = add_temporal_shift(shift_config, f_train, f_dev)
     # add diff
     if diff:
         f_train, f_dev  = add_diff(diff, f_train, f_dev)
+    # add wavelets
+    if cwt:
+        f_train, f_dev = add_wavelet_coef(
+            cwt_range, train, f_train, dev, f_dev,
+            filter=filter, scale=cwt_scale, pca=cwt_pca, n_components=cwt_pca_n)
     # temporal decomposition
     if temp_dec_freq:
         f_train, f_dev = add_temporal_decomposition(
