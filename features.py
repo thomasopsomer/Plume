@@ -132,7 +132,7 @@ def delta_temporal_station_zone(train, features_train, dev=None,
 
 def add_temporal_rolling_mean(delta, train, features_train,
                               dev=None, features_dev=None,
-                              columns=None):
+                              columns=None, pca=False, pca_n=0.8):
     """ """
     if columns is None:
         columns = cols["temporal"]
@@ -279,17 +279,25 @@ def add_diff(delta, features_train, features_dev=None):
     return features_train, features_dev
 
 
-def add_mean_y_zone(Y, train, features_train, dev=None, features_dev=None):
+def add_mean_y_zone(Y, train, features_train, dev=None, features_dev=None,
+                    shift=3):
     """ """
     Y_u = Y.merge(train[["zone_id", "daytime"]], left_index=True, right_index=True)
     avg_c = Y_u.groupby(["zone_id", "daytime"]).mean()
-    # add it to feature train    
+    # add it to feature train
     features_train = features_train.merge(
         avg_c, left_on=["zone_id", "daytime"], right_index=True, how="left")
+    if shift:
+        features_train["TARGET"] = features_train["TARGET"] \
+            .shift(shift).fillna(method="bfill")
     # on dev also
     if dev is not None:
         features_dev = features_dev.merge(
-            avg_c, left_on=["zone_id", "daytime"], right_index=True, how="left")
+            avg_c, left_on=["zone_id", "daytime"],
+            right_index=True, how="left")
+        if shift:
+            features_dev["TARGET"] = features_dev["TARGET"] \
+                .shift(shift).fillna(method="bfill")
     #
     return features_train, features_dev
 
@@ -369,46 +377,108 @@ def concat_decomposition(dec, resid=True):
     return res
 
 
-def add_wavelet_coef(range, train, f_train, dev=None, f_dev=None, filter="gaus1",
-                     scale=False, pca=False, n_components=0.75):
+def add_wavelet_coef(range, train, f_train, dev=None, f_dev=None,
+                     filter="gaus1", scale=False, pca=False,
+                     n_components=0.75):
     """ """
-    wavelets = compute_wavelet_coef(range, train, filter)
+    wavelets = compute_wavelet_coef(range, train, filter,
+                                    pca=pca, n_components=n_components)
+    # pcaw = {}
+    # gb = train.groupby("block")
+    # wavelets_gps = []
+    # cwt_cols = [
+    #     u'precipintensity',
+    #     u'precipprobability',
+    #     u'temperature',
+    #     u'cloudcover',
+    #     u'windbearingcos',
+    #     u'windbearingsin',
+    #     u'windspeed'
+    # ]
+    # for k, g in gb:
+    #     wavelet_col = []
+    #     for c in cwt_cols:
+    #         coefs, freqs = pywt.cwt(g[c], range, filter)
+    #         columns = ["%s_cwt_%i" % (c, j) for j in range]
+    #         if pca:
+    #             pcaw[k + c] = PCA(n_components=n_components)
+    #             coefs = pcaw[k + c].fit_transform(coefs.T).T
+    #             columns = ["%s_cwt_pca_%i" % (c, j)
+    #                        for j in xrange(pcaw[k + c].n_components_)]
+    #         #
+    #         wavelet_col.append(pd.DataFrame(coefs.T, columns=columns,
+    #                            index=g.index))
+    #     #
+    #     wavelet_col = pd.concat(wavelet_col, axis=1).sort_index()
+    #     wavelets_gps.append(wavelet_col)
+    # wavelets = pd.concat(wavelets_gps, axis=0)
+
     if scale:
         scaler = preprocessing.StandardScaler()
         wavelets = pd.DataFrame(
             scaler.fit_transform(wavelets), columns=wavelets.columns,
             index=wavelets.index)
-    if pca:
-        pca = PCA(n_components=n_components)
-        wavelets_red = pca.fit_transform(wavelets)
-        columns = ["cwt_pca_%i" % k for k in xrange(pca.n_components_)]
-        wavelets = pd.DataFrame(
-            wavelets_red, columns=columns, index=wavelets.index)
+    # if pca:
+    #     pca = PCA(n_components=n_components)
+    #     wavelets_red = pca.fit_transform(wavelets)
+    #     columns = ["cwt_pca_%i" % k for k in xrange(pca.n_components_)]
+    #     wavelets = pd.DataFrame(
+    #         wavelets_red, columns=columns, index=wavelets.index)
     f_train = f_train.merge(wavelets, left_index=True, right_index=True)
     if dev is not None:
-        wavelets = compute_wavelet_coef(range, dev, filter)
+        wavelets = compute_wavelet_coef(range, dev, filter,
+                                        pca=pca, n_components=n_components)
+        # gb = dev.groupby("block")
+        # wavelets_gps = []
+        # for k, g in gb:
+        #     wavelet_col = []
+        #     for c in cwt_cols:
+        #         coefs, freqs = pywt.cwt(g[c], range, filter)
+        #         columns = ["%s_cwt_%i" % (c, j) for j in range]
+        #         if pca:
+        #             # pca = PCA(n_components=n_components)
+        #             coefs = pcaw[k + c].transform(coefs.T).T
+        #             columns = ["%s_cwt_pca_%i" % (c, j)
+        #                        for j in xrange(pcaw[k + c].n_components_)]
+        #         #
+        #         wavelet_col.append(pd.DataFrame(coefs.T, columns=columns,
+        #                            index=g.index))
+        #     #
+        #     wavelet_col = pd.concat(wavelet_col, axis=1).sort_index()
+        #     wavelets_gps.append(wavelet_col)
+        # wavelets = pd.concat(wavelets_gps, axis=0)
+
         if scale:
             wavelets = pd.DataFrame(
                 scaler.transform(wavelets), columns=wavelets.columns,
                 index=wavelets.index)
-        if pca:
-            columns = ["cwt_pca_%i" % k for k in xrange(pca.n_components_)]
-            wavelets = pd.DataFrame(
-                pca.transform(wavelets), columns=columns, index=wavelets.index)
+        # if pca:
+        #     columns = ["cwt_pca_%i" % k for k in xrange(pca.n_components_)]
+        #     wavelets = pd.DataFrame(
+        #         pca.transform(wavelets), columns=columns, index=wavelets.index)
         f_dev = f_dev.merge(wavelets, left_index=True, right_index=True)
     return f_train, f_dev
 
 
-def compute_wavelet_coef(range, train, filter="gaus1"):
+def compute_wavelet_coef(range, train, filter="gaus1",
+                         pca=False, n_components=0.8):
     """ """
     gb = train.groupby("block")
     wavelets_gps = []
+    cwt_cols = list(set(cols["temporal"]).difference("pressure"))
     for k, g in gb:
-        wavelet_col = [] 
-        for col in cols["temporal"]:
-            coefs, freqs=pywt.cwt(g[col],range, filter)
+        wavelet_col = []
+        for col in cwt_cols:
+            coefs, freqs = pywt.cwt(g[col], range, filter)
             columns = ["%s_cwt_%i" % (col, k) for k in range]
-            wavelet_col.append(pd.DataFrame(coefs.T, columns=columns, index=g.index))
+            if pca:
+                pca = PCA(n_components=n_components)
+                coefs = pca.fit_transform(coefs.T).T
+                columns = ["%s_cwt_pca_%i" % (col, k)
+                           for k in xrange(pca.n_components_)]
+            #
+            wavelet_col.append(pd.DataFrame(coefs.T, columns=columns,
+                               index=g.index))
         #
         wavelet_col = pd.concat(wavelet_col, axis=1).sort_index()
         wavelets_gps.append(wavelet_col)
@@ -453,13 +523,13 @@ def drop_cols(df, cols):
 
 
 def make_features(train, dev=None, scale_temp=True, scale_time=True,
-                  rolling_mean=True, deltas_mean=[], roll_mean_conf={},
-                  rolling_std=True, deltas_std=[], std_pca=False, std_pca_n=0.8,
+                  rolling_mean=False, deltas_mean=[], roll_mean_conf={},
+                  rolling_std=False, deltas_std=[], std_pca=False, std_pca_n=0.8,
                   shift_config={}, temp_dec_freq=0, scale_dec=True, resid=True,
                   binary_static=False,
                   pollutant=False, diff=0,
                   remove_temporal=False, log=False,
-                  Y=None, mean_Y_zone=False,
+                  Y=None, mean_Y_zone=False, y_shift=3,
                   cwt=False, cwt_range=np.arange(0), filter="gaus1",
                   cwt_scale=False, cwt_pca=False, cwt_pca_n=0.8):
     """ """
@@ -534,7 +604,7 @@ def make_features(train, dev=None, scale_temp=True, scale_time=True,
             f_dev = drop_cols(f_dev, cols["temporal"])
     # add mean Y in each zone
     if Y is not None and mean_Y_zone:
-        f_train, f_dev = add_mean_y_zone(Y, train, f_train, dev, f_dev)
+        f_train, f_dev = add_mean_y_zone(Y, train, f_train, dev, f_dev, shift=y_shift)
     # drop daytime col
     if "daytime" in f_train:
         f_train.drop("daytime", axis=1, inplace=True)
